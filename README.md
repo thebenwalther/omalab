@@ -1,5 +1,7 @@
 # OmaRewind
 
+[![CI](https://github.com/thebenwalther/omarewind/actions/workflows/ci.yml/badge.svg)](https://github.com/thebenwalther/omarewind/actions/workflows/ci.yml)
+
 ![OmaRewind — Fearless Mode for Omarchy](docs/hero.svg)
 
 **Fearless Mode for Omarchy.** Capture your desktop configuration, experiment
@@ -67,6 +69,25 @@ confirmation and preserves the post-rewind state before it acts.
 
 The idle panel keeps the three newest experiments visible as a compact timeline
 of what was kept, rewound, or restored. The CLI retains the complete history.
+
+## Install
+
+Review the source, then let Omarchy clone, validate, and enable the plugin:
+
+```bash
+omarchy plugin add https://github.com/thebenwalther/omarewind.git --enable
+```
+
+Omarchy displays its standard unsandboxed-plugin warning and asks for
+confirmation before cloning. Future releases can be installed with:
+
+```bash
+omarchy plugin update com.omarchy.omarewind
+```
+
+Remove the plugin with `omarchy plugin remove com.omarchy.omarewind`. Checkpoint
+history remains under `~/.local/state/omarewind/` unless the user deliberately
+removes it.
 
 ## Development install
 
