@@ -6,6 +6,7 @@
   explicit before users begin.
 - Install the complete Qt QML runtime required by the presentation-model tests
   on GitHub Actions.
+- Pin the current Node 24 checkout action by commit for reproducible CI.
 
 ## 0.3.0
 
