@@ -13,6 +13,9 @@ BarWidget {
   property var manifest: null
   property var status: Model.emptyStatus()
   property bool refreshing: false
+  property string lastStatusOutput: ""
+  property string lastStatusError: ""
+  property int lastStatusExitCode: -1
 
   // Omarchy's bar registry currently injects bar/settings/moduleName, but not
   // the plugin manifest. Resolve relative to this QML file so both a normal
@@ -44,6 +47,9 @@ BarWidget {
   function refresh() {
     if (root.commandPath === "" || statusProc.running) return
     root.refreshing = true
+    root.lastStatusOutput = ""
+    root.lastStatusError = ""
+    root.lastStatusExitCode = -1
     statusProc.command = [root.commandPath, "status"]
     statusProc.running = true
   }
@@ -110,9 +116,22 @@ BarWidget {
     id: statusProc
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.adoptStatus(Model.parseStatus(text))
+      onStreamFinished: {
+        root.lastStatusOutput = String(text || "")
+        // Preserve the last-good state if a transient probe fails. An empty
+        // response must never make an active checkpoint look inactive.
+        if (root.lastStatusOutput.trim() !== "")
+          root.adoptStatus(Model.parseStatus(root.lastStatusOutput))
+      }
     }
-    onExited: root.refreshing = false
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.lastStatusError = String(text || "")
+    }
+    onExited: function(exitCode) {
+      root.lastStatusExitCode = exitCode
+      root.refreshing = false
+    }
   }
 
   Timer {
@@ -140,7 +159,12 @@ BarWidget {
       return JSON.stringify({
         commandPath: root.commandPath,
         panelLoaded: panelLoader.item !== null,
-        panelCommandPath: panelLoader.item ? panelLoader.item.effectiveCommandPath : ""
+        panelCommandPath: panelLoader.item ? panelLoader.item.effectiveCommandPath : "",
+        statusProcessRunning: statusProc.running,
+        refreshing: root.refreshing,
+        lastStatusExitCode: root.lastStatusExitCode,
+        lastStatusOutput: root.lastStatusOutput,
+        lastStatusError: root.lastStatusError
       })
     }
   }

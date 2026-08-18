@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+# Manifests are sorted in byte order. Keep every later comm/join comparison in
+# that same order regardless of the graphical shell's locale.
+export LC_ALL=C
+
 readonly PLUGIN_ID="com.omarchy.omarewind"
 readonly STATE_ROOT="${OMAREWIND_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarewind}"
 readonly ACTIVE_DIR="$STATE_ROOT/active"

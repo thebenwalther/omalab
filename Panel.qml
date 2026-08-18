@@ -228,6 +228,36 @@ Panel {
             }
           }
 
+          Row {
+            id: actionRow
+            visible: root.fearless
+            width: parent.width
+            spacing: Style.space(8)
+
+            Button {
+              width: (actionRow.width - actionRow.spacing) / 2
+              text: root.keepArmed ? "Click again to keep" : (root.busy && root.activeAction === "keep" ? "Keeping…" : "Keep Changes")
+              iconText: "\uf00c"
+              bordered: true
+              foreground: root.foreground
+              accent: root.accent
+              enabled: !root.busy
+              onClicked: root.requestKeep()
+            }
+
+            Button {
+              width: (actionRow.width - actionRow.spacing) / 2
+              text: root.rewindArmed ? "Click again to rewind" : (root.busy && root.activeAction === "rewind" ? "Rewinding…" : "Rewind Configs")
+              iconText: "\uf1da"
+              bordered: true
+              selected: root.rewindArmed
+              foreground: root.rewindArmed ? root.urgent : root.foreground
+              accent: root.rewindArmed ? root.urgent : root.accent
+              enabled: !root.busy
+              onClicked: root.requestRewind()
+            }
+          }
+
           Text {
             visible: !root.fearless
             width: parent.width
@@ -368,36 +398,6 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             horizontalAlignment: Text.AlignHCenter
-          }
-
-          Row {
-            id: actionRow
-            visible: root.fearless
-            width: parent.width
-            spacing: Style.space(8)
-
-            Button {
-              width: (actionRow.width - actionRow.spacing) / 2
-              text: root.keepArmed ? "Click again to keep" : (root.busy && root.activeAction === "keep" ? "Keeping…" : "Keep Changes")
-              iconText: "\uf00c"
-              bordered: true
-              foreground: root.foreground
-              accent: root.accent
-              enabled: !root.busy
-              onClicked: root.requestKeep()
-            }
-
-            Button {
-              width: (actionRow.width - actionRow.spacing) / 2
-              text: root.rewindArmed ? "Click again to rewind" : (root.busy && root.activeAction === "rewind" ? "Rewinding…" : "Rewind Configs")
-              iconText: "\uf1da"
-              bordered: true
-              selected: root.rewindArmed
-              foreground: root.rewindArmed ? root.urgent : root.foreground
-              accent: root.rewindArmed ? root.urgent : root.accent
-              enabled: !root.busy
-              onClicked: root.requestRewind()
-            }
           }
 
           PanelSeparator { foreground: root.foreground }

@@ -79,7 +79,9 @@ printf 'plugin version two\n' >"$HOME/.config/omarchy/plugins/com.omarchy.omarew
 printf 'base-package\nnew-package\n' >"$FAKE_PACKAGES_FILE"
 printf '%s\n' '[{"id":"omarchy.clock","enabled":true},{"id":"community.test","enabled":true}]' >"$FAKE_PLUGINS_FILE"
 
-status="$($COMMAND status)"
+# Omarchy's graphical shell can run plugins under a UTF-8 locale even when a
+# login shell uses C ordering. The backend must remain deterministic in both.
+status="$(LC_ALL=en_US.UTF-8 "$COMMAND" status)"
 assert_json "$status" '.active == true'
 assert_json "$status" '.files.added == 1 and .files.modified == 1 and .files.deleted == 1'
 assert_json "$status" '.packages.added == 1 and .plugins.added == 1 and .totalChanges == 5'
