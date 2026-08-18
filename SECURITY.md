@@ -57,8 +57,8 @@ avoids unreviewed package installation or removal and keeps the restore path
 unprivileged.
 
 Preview requests are restricted to the active computed change set. Text output
-is bounded, while binary files and files larger than 256 KiB are identified but
-never rendered into the shell panel.
+is bounded to 36 lines and 16 KiB, while binary files and files larger than
+256 KiB are identified but never rendered into the shell panel.
 
 ## Reporting a vulnerability
 

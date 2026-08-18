@@ -329,7 +329,7 @@ preview_is_binary_or_large() {
 
 command_preview() (
   local relative="${1:-}" work kind='' before after before_label after_label diff_code=0
-  local binary=false truncated=false total_lines preview
+  local binary=false truncated=false total_lines preview_size preview
   [[ -d "$ACTIVE_DIR" ]] || fail "Fearless Mode is not active"
   [[ -n "$relative" ]] || fail "preview requires a changed configuration path"
   validate_relative_path "$relative"
@@ -360,7 +360,10 @@ command_preview() (
     ((diff_code <= 1)) || fail "could not generate preview"
     total_lines="$(wc -l <"$work/diff")"
     ((total_lines > 36)) && truncated=true
-    preview="$(head -n 36 "$work/diff")"
+    head -n 36 "$work/diff" >"$work/diff-lines"
+    preview_size="$(stat -c '%s' "$work/diff-lines")"
+    ((preview_size > 16384)) && truncated=true
+    preview="$(head -c 16384 "$work/diff-lines")"
     [[ -n "$preview" ]] || preview="No textual difference is available."
   fi
 

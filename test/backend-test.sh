@@ -113,6 +113,10 @@ printf '\0binary\n' >"$HOME/.config/hypr/binary.lua"
 preview="$($COMMAND preview '.config/hypr/binary.lua')"
 assert_json "$preview" '.kind == "added" and .binary == true'
 rm -- "$HOME/.config/hypr/binary.lua"
+awk 'BEGIN { for (i = 0; i < 20000; i++) printf "x"; printf "\n" }' >"$HOME/.config/hypr/long-line.lua"
+preview="$($COMMAND preview '.config/hypr/long-line.lua')"
+assert_json "$preview" '.kind == "added" and .truncated == true and (.text | length) <= 16384'
+rm -- "$HOME/.config/hypr/long-line.lua"
 
 if "$COMMAND" rewind >/dev/null 2>&1; then
   printf 'rewind unexpectedly succeeded without --yes\n' >&2
