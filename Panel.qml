@@ -460,39 +460,13 @@ Panel {
               fontFamily: root.fontFamily
             }
 
-            BorderSurface {
+            HistoryCard {
               width: parent.width
-              height: Style.space(66)
-              radius: Style.cornerRadius
-              color: Style.normalFillFor(root.foreground, root.accent)
-              borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
-
-              Column {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.margins: Style.space(12)
-                spacing: Style.space(3)
-
-                Text {
-                  width: parent.width
-                  text: String(root.status.lastSession ? root.status.lastSession.label || "Omarchy experiment" : "")
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  font.bold: true
-                  elide: Text.ElideRight
-                }
-                Text {
-                  width: parent.width
-                  text: Model.lastSessionMeta(root.status.lastSession)
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                  font.letterSpacing: 1
-                }
-              }
+              session: root.status.lastSession
+              foreground: root.foreground
+              accent: root.accent
+              dim: root.dim
+              fontFamily: root.fontFamily
             }
 
             Text {
@@ -538,44 +512,14 @@ Panel {
               Repeater {
                 model: root.metricModel()
 
-                BorderSurface {
-                  id: metricCard
+                MetricCard {
                   required property var modelData
+                  metric: modelData
                   width: (metricsRow.width - metricsRow.spacing * 2) / 3
-                  height: Style.space(82)
-                  radius: Style.cornerRadius
-                  color: Style.normalFillFor(root.foreground, root.accent)
-                  borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
-
-                  Column {
-                    anchors.centerIn: parent
-                    spacing: Style.space(2)
-
-                    Text {
-                      anchors.horizontalCenter: parent.horizontalCenter
-                      text: String(metricCard.modelData.value)
-                      color: root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.display
-                      font.bold: true
-                    }
-                    Text {
-                      anchors.horizontalCenter: parent.horizontalCenter
-                      text: metricCard.modelData.label
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                      font.letterSpacing: 1
-                    }
-                    Text {
-                      anchors.horizontalCenter: parent.horizontalCenter
-                      text: metricCard.modelData.detail
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                    }
-                  }
+                  foreground: root.foreground
+                  accent: root.accent
+                  dim: root.dim
+                  fontFamily: root.fontFamily
                 }
               }
             }
@@ -641,120 +585,32 @@ Panel {
             Repeater {
               model: root.status.changes || []
 
-              CursorSurface {
-                id: changeRow
+              ChangeRow {
                 required property var modelData
+                change: modelData
                 width: parent.width
-                height: Style.space(28)
                 foreground: root.foreground
                 accent: root.accent
-                current: root.previewPath === String(changeRow.modelData.path || "")
-                hasCursor: changeMouse.containsMouse
-
-                Text {
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                  width: Style.space(78)
-                  text: Model.changeVerb(changeRow.modelData.kind)
-                  color: changeRow.modelData.kind === "deleted" ? root.urgent : root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                }
-                Text {
-                  anchors.left: parent.left
-                  anchors.leftMargin: Style.space(84)
-                  anchors.right: parent.right
-                  anchors.rightMargin: Style.space(18)
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: Model.compactPath(changeRow.modelData.path)
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  elide: Text.ElideLeft
-                }
-
-                Text {
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: changeRow.current ? "\uf078" : "\uf054"
-                  color: changeRow.current ? root.accent : root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-
-                MouseArea {
-                  id: changeMouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.loadPreview(String(changeRow.modelData.path || ""))
-                }
+                dim: root.dim
+                urgent: root.urgent
+                fontFamily: root.fontFamily
+                selected: root.previewPath === String(modelData.path || "")
+                onPreviewRequested: function(path) { root.loadPreview(path) }
               }
             }
 
-            BorderSurface {
+            DiffPreview {
               visible: root.previewPath !== ""
               width: parent.width
-              implicitHeight: previewColumn.implicitHeight + Style.space(20)
-              radius: Style.cornerRadius
-              color: Style.normalFillFor(root.foreground, root.accent)
-              borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
-
-              Column {
-                id: previewColumn
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.margins: Style.space(10)
-                spacing: Style.space(6)
-
-                Text {
-                  width: parent.width
-                  text: root.previewPath
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                  elide: Text.ElideLeft
-                }
-                Text {
-                  visible: root.previewBusy
-                  width: parent.width
-                  text: "Generating checkpoint diff…"
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
-                }
-                Text {
-                  visible: root.previewError !== ""
-                  width: parent.width
-                  text: root.previewError
-                  color: root.urgent
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  wrapMode: Text.WordWrap
-                }
-                Text {
-                  visible: root.previewData && !root.previewBusy
-                  width: parent.width
-                  text: root.previewData ? String(root.previewData.text || "") : ""
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.WrapAnywhere
-                }
-                Text {
-                  visible: root.previewData && root.previewData.truncated === true
-                  width: parent.width
-                  text: "PREVIEW LIMITED TO 36 LINES"
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                  font.letterSpacing: 1
-                }
-              }
+              path: root.previewPath
+              data: root.previewData
+              busy: root.previewBusy
+              error: root.previewError
+              foreground: root.foreground
+              accent: root.accent
+              dim: root.dim
+              urgent: root.urgent
+              fontFamily: root.fontFamily
             }
           }
 

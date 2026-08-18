@@ -5,6 +5,7 @@ set -euo pipefail
 readonly PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly QMLLINT="$(command -v qmllint 2>/dev/null || true)"
 readonly LINT_IMPORT_ROOT="$(mktemp -d)"
+mapfile -t QML_FILES < <(find "$PROJECT_ROOT" -maxdepth 1 -type f -name '*.qml' -print | sort)
 
 cleanup() {
   rm -rf -- "$LINT_IMPORT_ROOT"
@@ -20,12 +21,12 @@ jq -e . "$PROJECT_ROOT/manifest.json" >/dev/null
 [[ "$($PROJECT_ROOT/bin/omarewind version)" == "$(jq -r '.version' "$PROJECT_ROOT/manifest.json")" ]]
 omarchy plugin validate "$PROJECT_ROOT"
 if [[ -n "$QMLLINT" ]]; then
-  if ! "$QMLLINT" -I "$LINT_IMPORT_ROOT" "$PROJECT_ROOT/BarWidget.qml" "$PROJECT_ROOT/Panel.qml" >"$LINT_IMPORT_ROOT/qmllint.log" 2>&1; then
+  if ! "$QMLLINT" -I "$LINT_IMPORT_ROOT" "${QML_FILES[@]}" >"$LINT_IMPORT_ROOT/qmllint.log" 2>&1; then
     cat "$LINT_IMPORT_ROOT/qmllint.log" >&2
     exit 1
   fi
 elif [[ -x /usr/lib/qt6/bin/qmllint ]]; then
-  if ! /usr/lib/qt6/bin/qmllint -I "$LINT_IMPORT_ROOT" "$PROJECT_ROOT/BarWidget.qml" "$PROJECT_ROOT/Panel.qml" >"$LINT_IMPORT_ROOT/qmllint.log" 2>&1; then
+  if ! /usr/lib/qt6/bin/qmllint -I "$LINT_IMPORT_ROOT" "${QML_FILES[@]}" >"$LINT_IMPORT_ROOT/qmllint.log" 2>&1; then
     cat "$LINT_IMPORT_ROOT/qmllint.log" >&2
     exit 1
   fi
