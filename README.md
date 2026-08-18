@@ -38,7 +38,7 @@ optional name, start Fearless Mode, and it becomes a live badge:
 FEARLESS · 7
 ```
 
-![OmaRewind showing one changed configuration file and its live diff](docs/panel-live.jpg)
+![OmaRewind showing one changed configuration file and its live diff](docs/panel-live.png)
 
 The panel separates file, package, and plugin changes, shows recent modified
 paths, and opens a bounded unified diff when a path is clicked. It offers two
