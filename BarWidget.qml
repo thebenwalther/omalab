@@ -14,9 +14,14 @@ BarWidget {
   property var status: Model.emptyStatus()
   property bool refreshing: false
 
-  readonly property string commandPath: manifest && manifest.__sourceDir
-    ? manifest.__sourceDir + "/bin/omarewind"
-    : ""
+  // Omarchy's bar registry currently injects bar/settings/moduleName, but not
+  // the plugin manifest. Resolve relative to this QML file so both a normal
+  // clone and the development symlink locate the bundled command reliably.
+  readonly property string commandPath: {
+    if (manifest && manifest.__sourceDir) return manifest.__sourceDir + "/bin/omarewind"
+    var url = String(Qt.resolvedUrl("bin/omarewind"))
+    return decodeURIComponent(url.replace(/^file:\/\//, ""))
+  }
   readonly property bool fearless: status && status.active === true
   readonly property int changeCount: status ? Number(status.totalChanges) || 0 : 0
 
@@ -53,6 +58,24 @@ BarWidget {
 
   function togglePanel() {
     if (panelLoader.item) panelLoader.item.toggle()
+  }
+
+  function startFearlessMode() {
+    if (!panelLoader.item) return "panel-unavailable"
+    panelLoader.item.beginAction("start")
+    return "ok"
+  }
+
+  function keepExperiment() {
+    if (!panelLoader.item) return "panel-unavailable"
+    panelLoader.item.requestKeep()
+    return "ok"
+  }
+
+  function rewindExperiment() {
+    if (!panelLoader.item) return "panel-unavailable"
+    panelLoader.item.requestRewind()
+    return "ok"
   }
 
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
@@ -110,6 +133,16 @@ BarWidget {
     function toggle(): void { root.togglePanel() }
     function refresh(): string { root.broadcast("refresh"); return "ok" }
     function status(): string { return JSON.stringify(root.status) }
+    function start(): string { return root.startFearlessMode() }
+    function keep(): string { return root.keepExperiment() }
+    function rewind(): string { return root.rewindExperiment() }
+    function debug(): string {
+      return JSON.stringify({
+        commandPath: root.commandPath,
+        panelLoaded: panelLoader.item !== null,
+        panelCommandPath: panelLoader.item ? panelLoader.item.effectiveCommandPath : ""
+      })
+    }
   }
 
   WidgetButton {

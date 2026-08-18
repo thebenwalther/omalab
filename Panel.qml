@@ -22,6 +22,10 @@ Panel {
   property bool rewindArmed: false
   property bool keepArmed: false
 
+  readonly property string effectiveCommandPath: root.commandPath !== ""
+    ? root.commandPath
+    : (root.hostWidget ? root.hostWidget.commandPath : "")
+
   readonly property bool fearless: status && status.active === true
   readonly property color foreground: root.bar ? root.bar.foreground : Color.foreground
   readonly property color urgent: root.bar ? root.bar.urgent : Color.urgent
@@ -46,13 +50,16 @@ Panel {
   }
 
   function beginAction(action) {
-    if (busy || commandPath === "") return
+    if (root.busy || root.effectiveCommandPath === "") {
+      root.resultText = "OmaRewind could not locate its checkpoint command."
+      return
+    }
     activeAction = action
     resultText = ""
     busy = true
-    if (action === "start") actionProc.command = [commandPath, "start", "Omarchy experiment"]
-    else if (action === "keep") actionProc.command = [commandPath, "keep", "--yes"]
-    else if (action === "rewind") actionProc.command = [commandPath, "rewind", "--yes"]
+    if (action === "start") actionProc.command = [root.effectiveCommandPath, "start", "Omarchy experiment"]
+    else if (action === "keep") actionProc.command = [root.effectiveCommandPath, "keep", "--yes"]
+    else if (action === "rewind") actionProc.command = [root.effectiveCommandPath, "rewind", "--yes"]
     else return
     actionProc.running = true
   }
@@ -150,18 +157,6 @@ Panel {
     }
   }
 
-  IpcHandler {
-    target: root.ipcTarget
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.toggle() }
-    function start(): string { root.beginAction("start"); return "ok" }
-    function keep(): string { root.requestKeep(); return "ok" }
-    function rewind(): string { root.requestRewind(); return "ok" }
-  }
-
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -253,7 +248,7 @@ Panel {
             bordered: true
             foreground: root.foreground
             accent: root.accent
-            enabled: !root.busy && root.commandPath !== ""
+            enabled: !root.busy && root.effectiveCommandPath !== ""
             onClicked: root.beginAction("start")
           }
 
