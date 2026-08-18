@@ -46,6 +46,12 @@ intentional exits:
 - **Rewind Configs** restores the checkpoint and archives a record of what was
   rewound.
 
+Changed files appear as clickable rows beneath **Recent Configuration Changes**.
+Click a row to inspect its diff; **Rewind Configs** at the top restores every
+listed configuration file. If the panel shows `0 changes`, there is nothing to
+rewind yet—make a theme, bar, keybinding, or terminal change and wait a few
+seconds for the live scan.
+
 Both actions require a second click within five seconds. The same flow is fully
 keyboard accessible with `S`, `K`, `R`, `U`, and `Esc`.
 

@@ -582,6 +582,15 @@ Panel {
               fontFamily: root.fontFamily
             }
 
+            Text {
+              width: parent.width
+              text: "Click a file to preview its diff. Rewind Configs above restores every listed file."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
             Repeater {
               model: root.status.changes || []
 
@@ -617,11 +626,12 @@ Panel {
           Text {
             visible: root.fearless && root.status.totalChanges === 0
             width: parent.width
-            text: "Your checkpoint is clean. Go make something interesting."
+            text: "Nothing to rewind yet. Change a theme, bar setting, keybind, or terminal config; it will appear here in a few seconds."
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
           }
 
           PanelSeparator { foreground: root.foreground }
