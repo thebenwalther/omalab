@@ -92,7 +92,7 @@ if "$COMMAND" rewind >/dev/null 2>&1; then
 fi
 
 status="$($COMMAND rewind --yes)"
-assert_json "$status" '.active == false and .historyCount == 1'
+assert_json "$status" '.active == false and .historyCount == 1 and .canUndo == true'
 grep -qx 'original binding' "$HOME/.config/hypr/bindings.lua"
 grep -qx 'original terminal' "$HOME/.config/ghostty/config"
 grep -qx 'plugin version two' "$HOME/.config/omarchy/plugins/com.omarchy.omarewind/BarWidget.qml"
@@ -106,6 +106,125 @@ printf 'kept binding\n' >"$HOME/.config/hypr/bindings.lua"
 status="$($COMMAND keep --yes)"
 assert_json "$status" '.active == false and .historyCount == 2'
 grep -qx 'kept binding' "$HOME/.config/hypr/bindings.lua"
+
+# Replacing a tracked directory with a symlink must never make rsync follow the
+# link and delete files outside ~/.config during a rewind.
+$COMMAND start 'Symlink safety test' >/dev/null
+mkdir -p "$TEST_ROOT/outside"
+printf 'must survive\n' >"$TEST_ROOT/outside/sentinel"
+rm -rf -- "$HOME/.config/hypr"
+ln -s "$TEST_ROOT/outside" "$HOME/.config/hypr"
+status="$($COMMAND rewind --yes)"
+assert_json "$status" '.active == false and .historyCount == 3'
+[[ ! -L "$HOME/.config/hypr" ]]
+grep -qx 'kept binding' "$HOME/.config/hypr/bindings.lua"
+grep -qx 'must survive' "$TEST_ROOT/outside/sentinel"
+
+# A damaged checkpoint must fail closed before touching live configuration.
+$COMMAND start 'Integrity test' >/dev/null
+printf 'live work\n' >"$HOME/.config/hypr/bindings.lua"
+printf 'tampered snapshot\n' >"$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/bindings.lua"
+if "$COMMAND" rewind --yes >/dev/null 2>&1; then
+  printf 'rewind unexpectedly accepted a damaged checkpoint\n' >&2
+  exit 1
+fi
+grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
+printf 'kept binding\n' >"$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/bindings.lua"
+printf 'injected\n' >"$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/not-in-manifest.lua"
+if "$COMMAND" rewind --yes >/dev/null 2>&1; then
+  printf 'rewind unexpectedly accepted an injected snapshot file\n' >&2
+  exit 1
+fi
+grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
+rm -- "$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/not-in-manifest.lua"
+$COMMAND keep --yes >/dev/null
+
+# Failed status probes must clean their private work directory.
+$COMMAND start 'Cleanup test' >/dev/null
+cp "$OMAREWIND_STATE_HOME/active/manifest.tsv" "$TEST_ROOT/manifest.good"
+tac "$TEST_ROOT/manifest.good" >"$OMAREWIND_STATE_HOME/active/manifest.tsv"
+if "$COMMAND" status >/dev/null 2>&1; then
+  printf 'status unexpectedly accepted an unsorted manifest\n' >&2
+  exit 1
+fi
+[[ "$(find "$OMAREWIND_STATE_HOME" -maxdepth 1 -type d -name '.status.*' | wc -l)" -eq 0 ]]
+cp "$TEST_ROOT/manifest.good" "$OMAREWIND_STATE_HOME/active/manifest.tsv"
+$COMMAND keep --yes >/dev/null
+
+# Rewind preserves the experiment and supports one deliberate undo.
+$COMMAND start 'Undo test' >/dev/null
+printf 'rescue this experiment\n' >"$HOME/.config/hypr/bindings.lua"
+status="$($COMMAND rewind --yes)"
+assert_json "$status" '.active == false and .canUndo == true and .lastSession.outcome == "rewound"'
+grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
+if "$COMMAND" undo >/dev/null 2>&1; then
+  printf 'undo unexpectedly succeeded without --yes\n' >&2
+  exit 1
+fi
+status="$($COMMAND undo --yes)"
+assert_json "$status" '.active == false and .canUndo == false and .lastSession.outcome == "rewind-undone"'
+grep -qx 'rescue this experiment' "$HOME/.config/hypr/bindings.lua"
+
+# Competing start requests serialize cleanly and leave one valid checkpoint.
+set +e
+"$COMMAND" start 'Concurrent A' >"$TEST_ROOT/start-a.out" 2>"$TEST_ROOT/start-a.err" &
+pid_a=$!
+"$COMMAND" start 'Concurrent B' >"$TEST_ROOT/start-b.out" 2>"$TEST_ROOT/start-b.err" &
+pid_b=$!
+wait "$pid_a"; code_a=$?
+wait "$pid_b"; code_b=$?
+set -e
+[[ $((code_a + code_b)) -eq 1 ]]
+status="$($COMMAND status)"
+assert_json "$status" '.active == true and (.label == "Concurrent A" or .label == "Concurrent B")'
+$COMMAND keep --yes >/dev/null
+[[ "$(stat -c '%a' "$OMAREWIND_STATE_HOME")" == "700" ]]
+[[ "$(stat -c '%a' "$OMAREWIND_STATE_HOME/.lock")" == "600" ]]
+
+# Metadata cannot turn an archive destination into a path traversal.
+$COMMAND start 'Metadata safety test' >/dev/null
+printf 'metadata live work\n' >"$HOME/.config/hypr/bindings.lua"
+cp "$OMAREWIND_STATE_HOME/active/meta.json" "$TEST_ROOT/meta.good"
+jq '.id = "../../escape"' "$TEST_ROOT/meta.good" >"$OMAREWIND_STATE_HOME/active/meta.json"
+if "$COMMAND" keep --yes >/dev/null 2>&1; then
+  printf 'keep unexpectedly accepted a hostile checkpoint id\n' >&2
+  exit 1
+fi
+[[ ! -e "$TEST_ROOT/escape-kept" ]]
+grep -qx 'metadata live work' "$HOME/.config/hypr/bindings.lua"
+cp "$TEST_ROOT/meta.good" "$OMAREWIND_STATE_HOME/active/meta.json"
+$COMMAND keep --yes >/dev/null
+
+# State control files themselves may not be symlinks.
+printf 'lock sentinel\n' >"$TEST_ROOT/lock-sentinel"
+mv "$OMAREWIND_STATE_HOME/.lock" "$TEST_ROOT/real-lock"
+ln -s "$TEST_ROOT/lock-sentinel" "$OMAREWIND_STATE_HOME/.lock"
+if "$COMMAND" status >/dev/null 2>&1; then
+  printf 'status unexpectedly followed a symlinked lock file\n' >&2
+  exit 1
+fi
+grep -qx 'lock sentinel' "$TEST_ROOT/lock-sentinel"
+rm -- "$OMAREWIND_STATE_HOME/.lock"
+mv "$TEST_ROOT/real-lock" "$OMAREWIND_STATE_HOME/.lock"
+
+mkdir -p "$TEST_ROOT/fake-active"
+ln -s "$TEST_ROOT/fake-active" "$OMAREWIND_STATE_HOME/active"
+if "$COMMAND" status >/dev/null 2>&1; then
+  printf 'status unexpectedly followed a symlinked active checkpoint\n' >&2
+  exit 1
+fi
+rm -- "$OMAREWIND_STATE_HOME/active"
+
+# Unsupported path separators fail atomically rather than producing an
+# ambiguous TSV checkpoint that could restore the wrong file.
+printf 'odd\n' >"$HOME/.config/hypr/has"$'\t'"tab"
+if "$COMMAND" start 'Odd filename test' >/dev/null 2>&1; then
+  printf 'start unexpectedly accepted a tab in a filename\n' >&2
+  exit 1
+fi
+[[ ! -d "$OMAREWIND_STATE_HOME/active" ]]
+[[ "$(find "$OMAREWIND_STATE_HOME" -maxdepth 1 -type d -name '.starting.*' | wc -l)" -eq 0 ]]
+rm -- "$HOME/.config/hypr/has"$'\t'"tab"
 
 doctor="$($COMMAND doctor)"
 assert_json "$doctor" '.ok == true and .pluginId == "com.omarchy.omarewind"'

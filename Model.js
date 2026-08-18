@@ -5,6 +5,8 @@ function emptyStatus() {
     active: false,
     totalChanges: 0,
     historyCount: 0,
+    canUndo: false,
+    lastSession: null,
     files: { added: 0, modified: 0, deleted: 0, total: 0 },
     packages: { added: 0, removed: 0, total: 0 },
     plugins: { added: 0, removed: 0, total: 0 },
@@ -52,6 +54,23 @@ function changeVerb(kind) {
   if (kind === "added") return "ADDED"
   if (kind === "deleted") return "REMOVED"
   return "CHANGED"
+}
+
+function outcomeLabel(outcome) {
+  if (outcome === "rewound") return "REWOUND"
+  if (outcome === "rewind-undone") return "REWIND UNDONE"
+  if (outcome === "kept") return "KEPT"
+  return "COMPLETED"
+}
+
+function lastSessionMeta(session) {
+  if (!session) return "NO COMPLETED EXPERIMENTS"
+  var bits = [outcomeLabel(String(session.outcome || ""))]
+  if (session.finishedAt) {
+    var date = new Date(String(session.finishedAt))
+    if (!isNaN(date.getTime())) bits.push(date.toLocaleDateString(Qt.locale(), "MMM d"))
+  }
+  return bits.join(" · ")
 }
 
 function tooltip(status) {

@@ -27,6 +27,7 @@ BarWidget {
   }
   readonly property bool fearless: status && status.active === true
   readonly property int changeCount: status ? Number(status.totalChanges) || 0 : 0
+  readonly property bool statusError: lastStatusExitCode > 0
 
   function injectPanel() {
     var target = panelLoader.item
@@ -37,6 +38,8 @@ BarWidget {
     target.hostWidget = root
     target.commandPath = root.commandPath
     target.status = root.status
+    target.backendError = root.statusError
+    target.backendErrorText = root.lastStatusError
   }
 
   function adoptStatus(next) {
@@ -81,6 +84,12 @@ BarWidget {
   function rewindExperiment() {
     if (!panelLoader.item) return "panel-unavailable"
     panelLoader.item.requestRewind()
+    return "ok"
+  }
+
+  function undoRewind() {
+    if (!panelLoader.item) return "panel-unavailable"
+    panelLoader.item.requestUndo()
     return "ok"
   }
 
@@ -131,6 +140,7 @@ BarWidget {
     onExited: function(exitCode) {
       root.lastStatusExitCode = exitCode
       root.refreshing = false
+      root.injectPanel()
     }
   }
 
@@ -155,6 +165,7 @@ BarWidget {
     function start(): string { return root.startFearlessMode() }
     function keep(): string { return root.keepExperiment() }
     function rewind(): string { return root.rewindExperiment() }
+    function undo(): string { return root.undoRewind() }
     function debug(): string {
       return JSON.stringify({
         commandPath: root.commandPath,
@@ -179,7 +190,7 @@ BarWidget {
     fontSize: root.fearless && !root.vertical ? Style.font.caption : Style.font.icon
     active: root.fearless
     activeColor: root.bar ? root.bar.barForeground : Color.foreground
-    tooltipText: Model.tooltip(root.status)
+    tooltipText: root.statusError ? "OmaRewind · Checkpoint needs attention" : Model.tooltip(root.status)
     horizontalMargin: root.fearless ? 10 : 8.5
 
     SequentialAnimation on opacity {

@@ -21,6 +21,9 @@ Panel {
   property string resultText: ""
   property bool rewindArmed: false
   property bool keepArmed: false
+  property bool undoArmed: false
+  property bool backendError: false
+  property string backendErrorText: ""
 
   readonly property string effectiveCommandPath: root.commandPath !== ""
     ? root.commandPath
@@ -42,6 +45,7 @@ Panel {
   function close() {
     rewindArmed = false
     keepArmed = false
+    undoArmed = false
     root.controller.hide()
   }
 
@@ -57,9 +61,13 @@ Panel {
     activeAction = action
     resultText = ""
     busy = true
-    if (action === "start") actionProc.command = [root.effectiveCommandPath, "start", "Omarchy experiment"]
+    if (action === "start") {
+      var label = String(experimentNameField.text || "").trim()
+      actionProc.command = [root.effectiveCommandPath, "start", label !== "" ? label : "Omarchy experiment"]
+    }
     else if (action === "keep") actionProc.command = [root.effectiveCommandPath, "keep", "--yes"]
     else if (action === "rewind") actionProc.command = [root.effectiveCommandPath, "rewind", "--yes"]
+    else if (action === "undo") actionProc.command = [root.effectiveCommandPath, "undo", "--yes"]
     else return
     actionProc.running = true
   }
@@ -84,6 +92,19 @@ Panel {
     }
     rewindArmed = false
     beginAction("rewind")
+  }
+
+  function requestUndo() {
+    if (!root.status.canUndo) return
+    if (!undoArmed) {
+      undoArmed = true
+      keepArmed = false
+      rewindArmed = false
+      armTimer.restart()
+      return
+    }
+    undoArmed = false
+    beginAction("undo")
   }
 
   function createSystemSnapshot() {
@@ -116,6 +137,7 @@ Panel {
   }
 
   function adoptActionOutput(raw) {
+    if (String(raw || "").trim() === "") return
     var next = Model.parseStatus(raw)
     if (hostWidget) hostWidget.adoptStatus(next)
     status = next
@@ -125,6 +147,9 @@ Panel {
     if (!fearless) {
       rewindArmed = false
       keepArmed = false
+    } else {
+      undoArmed = false
+      experimentNameField.text = ""
     }
   }
 
@@ -134,6 +159,7 @@ Panel {
     onTriggered: {
       root.rewindArmed = false
       root.keepArmed = false
+      root.undoArmed = false
     }
   }
 
@@ -171,7 +197,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.busy
+      blocked: root.busy || experimentNameField.activeFocus
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onActivateRequested: if (!root.fearless) root.beginAction("start")
@@ -180,6 +206,7 @@ Panel {
         if (key === "s" && !root.fearless) root.beginAction("start")
         else if (key === "k" && root.fearless) root.requestKeep()
         else if (key === "r" && root.fearless) root.requestRewind()
+        else if (key === "u" && !root.fearless && root.status.canUndo) root.requestUndo()
       }
 
       Flickable {
@@ -228,6 +255,45 @@ Panel {
             }
           }
 
+          BorderSurface {
+            visible: root.backendError || root.resultText !== ""
+            width: parent.width
+            implicitHeight: backendErrorColumn.implicitHeight + Style.space(20)
+            radius: Style.cornerRadius
+            color: Style.normalFillFor(root.urgent, root.accent)
+            borderSpec: Border.controlSpec("selected", root.urgent, root.accent)
+
+            Column {
+              id: backendErrorColumn
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.margins: Style.space(10)
+              spacing: Style.space(3)
+
+              Text {
+                width: parent.width
+                text: root.backendError ? "CHECKPOINT NEEDS ATTENTION" : "ACTION COULD NOT FINISH"
+                color: root.urgent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                font.letterSpacing: 1
+              }
+              Text {
+                width: parent.width
+                text: {
+                  var message = root.resultText !== "" ? root.resultText : String(root.backendErrorText || "Status refresh failed")
+                  return message.replace(/^OmaRewind:\s*/, "").trim()
+                }
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+            }
+          }
+
           Row {
             id: actionRow
             visible: root.fearless
@@ -269,6 +335,26 @@ Panel {
             lineHeight: 1.25
           }
 
+          TextField {
+            id: experimentNameField
+            visible: !root.fearless
+            width: parent.width
+            placeholderText: "Name this experiment (optional)"
+            foreground: root.foreground
+            font.family: root.fontFamily
+            maximumLength: 60
+            enabled: !root.busy
+
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                experimentNameField.focus = false
+                keyCatcher.forceActiveFocus()
+                event.accepted = true
+              }
+            }
+            onAccepted: root.beginAction("start")
+          }
+
           Button {
             visible: !root.fearless
             width: parent.width
@@ -280,6 +366,77 @@ Panel {
             accent: root.accent
             enabled: !root.busy && root.effectiveCommandPath !== ""
             onClicked: root.beginAction("start")
+          }
+
+          Column {
+            visible: !root.fearless && root.status.lastSession
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelSeparator { foreground: root.foreground }
+            PanelSectionHeader {
+              text: "LAST EXPERIMENT"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+
+            BorderSurface {
+              width: parent.width
+              height: Style.space(66)
+              radius: Style.cornerRadius
+              color: Style.normalFillFor(root.foreground, root.accent)
+              borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
+
+              Column {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.margins: Style.space(12)
+                spacing: Style.space(3)
+
+                Text {
+                  width: parent.width
+                  text: String(root.status.lastSession ? root.status.lastSession.label || "Omarchy experiment" : "")
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                  elide: Text.ElideRight
+                }
+                Text {
+                  width: parent.width
+                  text: Model.lastSessionMeta(root.status.lastSession)
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1
+                }
+              }
+            }
+
+            Text {
+              visible: root.status.canUndo === true
+              width: parent.width
+              text: "Changed your mind? The experiment was preserved before its configs were restored."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            Button {
+              visible: root.status.canUndo === true
+              width: parent.width
+              text: root.undoArmed ? "Click again to restore experiment" : (root.busy && root.activeAction === "undo" ? "Restoring experiment…" : "Undo Last Rewind")
+              iconText: "\uf2ea"
+              bordered: true
+              selected: root.undoArmed
+              foreground: root.undoArmed ? root.urgent : root.foreground
+              accent: root.undoArmed ? root.urgent : root.accent
+              enabled: !root.busy
+              onClicked: root.requestUndo()
+            }
           }
 
           Column {
@@ -441,18 +598,10 @@ Panel {
           }
 
           Text {
-            visible: root.resultText !== ""
             width: parent.width
-            text: root.resultText
-            color: root.urgent
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
-          }
-
-          Text {
-            width: parent.width
-            text: "S start  ·  K keep  ·  R rewind  ·  Esc close"
+            text: root.status.canUndo
+              ? "S start  ·  U undo rewind  ·  Esc close"
+              : "S start  ·  K keep  ·  R rewind  ·  Esc close"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
