@@ -51,6 +51,10 @@ changed config link from turning a rewind into deletion elsewhere.
   is captured again.
 - Failed status probes preserve the last-good UI state and surface an error.
 - Interrupted scans remove their private temporary directories on exit.
+- Rewind and undo are resumable from their verified safety copy after an
+  interrupted restore.
+- Corrupt history entries are excluded from user-facing history and reported
+  by `doctor`; archived baseline, experiment, and pre-undo layers are audited.
 
 Package differences are reported but never reconciled automatically. This
 avoids unreviewed package installation or removal and keeps the restore path

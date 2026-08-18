@@ -304,6 +304,16 @@ fi
 [[ "$(find "$OMAREWIND_STATE_HOME" -maxdepth 1 -type d -name '.starting.*' | wc -l)" -eq 0 ]]
 rm -- "$HOME/.config/hypr/has"$'\t'"tab"
 
+# Corrupt history is skipped from stable JSON and reported by doctor instead
+# of poisoning the last-session model.
+corrupt_history="$(find "$OMAREWIND_STATE_HOME/history" -mindepth 1 -maxdepth 1 -type d -print | sort -r | head -n 1)"
+cp "$corrupt_history/meta.json" "$TEST_ROOT/history-meta.good"
+printf '{broken\n' >"$corrupt_history/meta.json"
+assert_json "$($COMMAND history)" 'type == "array"'
+doctor="$($COMMAND doctor)"
+assert_json "$doctor" '.ok == false and .history.corruptEntries == 1'
+cp "$TEST_ROOT/history-meta.good" "$corrupt_history/meta.json"
+
 doctor="$($COMMAND doctor)"
 assert_json "$doctor" '.ok == true and .pluginId == "com.omarchy.omarewind" and .version == "0.3.0"'
 

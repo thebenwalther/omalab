@@ -270,15 +270,29 @@ verify_checkpoint() (
   cmp -s -- "$checkpoint/manifest.tsv" "$verify_manifest" || fail "checkpoint manifest does not match its snapshot"
 )
 
+valid_history_meta() {
+  local meta="$1"
+  [[ -f "$meta" && ! -L "$meta" ]] || return 1
+  jq -e '
+    type == "object" and
+    (.version == 1) and
+    (.id | type == "string" and test("^[0-9]{8}-[0-9]{6}[A-Za-z0-9._-]*$")) and
+    ((.outcome == "kept") or (.outcome == "rewound") or (.outcome == "rewind-undone"))
+  ' "$meta" >/dev/null 2>&1
+}
+
 history_count() {
-  find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -printf '.' 2>/dev/null | wc -c
+  local item count=0
+  while IFS= read -r item; do
+    valid_history_meta "$item/meta.json" && count=$((count + 1))
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null)
+  printf '%s\n' "$count"
 }
 
 latest_history_dir() {
   local item
   while IFS= read -r item; do
-    [[ -f "$item/meta.json" ]] || continue
-    jq -e 'type == "object"' "$item/meta.json" >/dev/null 2>&1 || continue
+    valid_history_meta "$item/meta.json" || continue
     printf '%s\n' "$item"
     return 0
   done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort -r)
@@ -678,12 +692,13 @@ command_undo() {
 
 command_history() {
   ensure_state_dirs
-  local item first=true
+  local item meta first=true
   printf '['
   while IFS= read -r item; do
-    [[ -f "$item/meta.json" ]] || continue
+    valid_history_meta "$item/meta.json" || continue
+    meta="$(jq -c '.' "$item/meta.json")"
     $first || printf ','
-    jq -c '.' "$item/meta.json"
+    printf '%s' "$meta"
     first=false
   done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort -r)
   printf ']\n'
@@ -691,6 +706,7 @@ command_history() {
 
 command_doctor() {
   local missing=() command active=false integrity='null' state_bytes state_mode lock_mode stale history
+  local item outcome history_total=0 history_corrupt=0
   for command in jq rsync sha256sum find sort cut comm join awk cmp diff grep head iconv flock realpath stat du; do
     command -v "$command" >/dev/null 2>&1 || missing+=("$command")
   done
@@ -699,6 +715,25 @@ command_doctor() {
   lock_mode="$(stat -c '%a' "$LOCK_FILE")"
   stale="$(find "$STATE_ROOT" -mindepth 1 -maxdepth 1 \( -name '.status.*' -o -name '.starting.*' -o -name '.verify.*' \) -printf '.\n' | wc -l)"
   history="$(history_count | tr -d ' ')"
+  while IFS= read -r item; do
+    history_total=$((history_total + 1))
+    if ! valid_history_meta "$item/meta.json" || ! verify_checkpoint "$item" >/dev/null 2>&1; then
+      history_corrupt=$((history_corrupt + 1))
+      continue
+    fi
+    outcome="$(jq -r '.outcome' "$item/meta.json")"
+    if [[ "$outcome" == "rewound" || "$outcome" == "rewind-undone" ]]; then
+      if [[ -L "$item/experiment" ]] || ! verify_checkpoint "$item/experiment" >/dev/null 2>&1; then
+        history_corrupt=$((history_corrupt + 1))
+        continue
+      fi
+    fi
+    if [[ "$outcome" == "rewind-undone" ]]; then
+      if [[ -L "$item/before-undo" ]] || ! verify_checkpoint "$item/before-undo" >/dev/null 2>&1; then
+        history_corrupt=$((history_corrupt + 1))
+      fi
+    fi
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null)
   if [[ -d "$ACTIVE_DIR" ]]; then
     active=true
     if verify_checkpoint "$ACTIVE_DIR" >/dev/null 2>&1; then integrity=true; else integrity=false; fi
@@ -712,16 +747,19 @@ command_doctor() {
     --arg lockMode "$lock_mode" \
     --argjson stateBytes "$state_bytes" \
     --argjson historyCount "${history:-0}" \
+    --argjson historyTotal "$history_total" \
+    --argjson historyCorrupt "$history_corrupt" \
     --argjson staleEntries "$stale" \
     --argjson active "$active" \
     --argjson integrity "$integrity" \
     '{
-      ok: (($missing | length) == 0 and $stateMode == "700" and $lockMode == "600" and $staleEntries == 0 and $integrity != false),
+      ok: (($missing | length) == 0 and $stateMode == "700" and $lockMode == "600" and $staleEntries == 0 and $integrity != false and $historyCorrupt == 0),
       missing: $missing,
       pluginId: $pluginId,
       version: $version,
       state: {path: $stateRoot, bytes: $stateBytes, mode: $stateMode, lockMode: $lockMode, staleEntries: $staleEntries},
       checkpoint: {active: $active, integrity: $integrity},
+      history: {count: $historyCount, totalEntries: $historyTotal, corruptEntries: $historyCorrupt},
       historyCount: $historyCount
     }'
 }
