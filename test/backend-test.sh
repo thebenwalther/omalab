@@ -19,6 +19,7 @@ export FAKE_PACKAGES_FILE="$TEST_ROOT/packages"
 export FAKE_PLUGINS_FILE="$TEST_ROOT/plugins.json"
 export FAKE_THEME_LOG="$TEST_ROOT/theme.log"
 export FAIL_RSYNC_FILE="$TEST_ROOT/fail-restore-rsync"
+export FAKE_SHA_LOG="$TEST_ROOT/sha256sum.log"
 export PATH="$TEST_ROOT/bin:$PATH"
 
 mkdir -p "$HOME/.config/hypr" \
@@ -31,6 +32,9 @@ printf 'original terminal\n' >"$HOME/.config/ghostty/config"
 printf 'plugin version one\n' >"$HOME/.config/omarchy/plugins/com.omarchy.omarewind/BarWidget.qml"
 printf 'base-package\n' >"$FAKE_PACKAGES_FILE"
 printf '%s\n' '[{"id":"omarchy.clock","enabled":true}]' >"$FAKE_PLUGINS_FILE"
+for fixture_number in {1..40}; do
+  printf 'fixture %s\n' "$fixture_number" >"$HOME/.config/hypr/fixture-$fixture_number.lua"
+done
 
 cat >"$TEST_ROOT/bin/pacman" <<'EOF'
 #!/usr/bin/env bash
@@ -72,6 +76,12 @@ fi
 exec /usr/bin/rsync "$@"
 EOF
 
+cat >"$TEST_ROOT/bin/sha256sum" <<'EOF'
+#!/usr/bin/env bash
+printf '.\n' >>"$FAKE_SHA_LOG"
+exec /usr/bin/sha256sum "$@"
+EOF
+
 chmod +x "$TEST_ROOT/bin/"*
 
 assert_json() {
@@ -84,6 +94,10 @@ assert_json() {
 
 status="$($COMMAND start 'Test experiment')"
 assert_json "$status" '.active == true and .label == "Test experiment" and .totalChanges == 0'
+# Start performs four full-tree hashes (capture, verification, status
+# verification, and live diff), regardless of how many files are tracked.
+[[ "$(wc -l <"$FAKE_SHA_LOG")" -le 4 ]]
+: >"$FAKE_SHA_LOG"
 
 printf 'changed binding\n' >"$HOME/.config/hypr/bindings.lua"
 printf 'new setting\n' >"$HOME/.config/hypr/new.lua"
@@ -98,6 +112,7 @@ status="$(LC_ALL=en_US.UTF-8 "$COMMAND" status)"
 assert_json "$status" '.active == true'
 assert_json "$status" '.files.added == 1 and .files.modified == 1 and .files.deleted == 1'
 assert_json "$status" '.packages.added == 1 and .plugins.added == 1 and .totalChanges == 5'
+[[ "$(wc -l <"$FAKE_SHA_LOG")" -le 2 ]]
 
 preview="$($COMMAND preview '.config/hypr/bindings.lua')"
 assert_json "$preview" '.kind == "modified" and (.text | contains("-original binding")) and (.text | contains("+changed binding"))'
@@ -294,6 +309,20 @@ if "$COMMAND" start $'unsafe\nlabel' >/dev/null 2>&1; then
   exit 1
 fi
 [[ ! -d "$OMAREWIND_STATE_HOME/active" ]]
+
+# Spaces and backslashes are valid configuration filenames. Batched hashing
+# must preserve them byte-for-byte instead of parsing checksum output as text.
+printf 'space original\n' >"$HOME/.config/hypr/space name.lua"
+printf 'slash original\n' >"$HOME/.config/hypr/back\\slash.lua"
+$COMMAND start 'Filename compatibility test' >/dev/null
+printf 'space changed\n' >"$HOME/.config/hypr/space name.lua"
+printf 'slash changed\n' >"$HOME/.config/hypr/back\\slash.lua"
+status="$($COMMAND status)"
+assert_json "$status" '([.changes[].path] | index(".config/hypr/space name.lua")) != null'
+assert_json "$status" '([.changes[].path] | index(".config/hypr/back\\slash.lua")) != null'
+$COMMAND rewind --yes >/dev/null
+grep -qx 'space original' "$HOME/.config/hypr/space name.lua"
+grep -qx 'slash original' "$HOME/.config/hypr/back\\slash.lua"
 
 # Unsupported path separators fail atomically rather than producing an
 # ambiguous TSV checkpoint that could restore the wrong file.

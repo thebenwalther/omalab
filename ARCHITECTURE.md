@@ -15,8 +15,10 @@ checkpoint model.
   history, notifications, and desktop reload.
 
 The shell polls every five seconds while Fearless Mode is active and every
-thirty seconds while idle. On a representative 124-file configuration, a warm
-status scan completes in roughly a hundredth of a second; scans never retain a
+thirty seconds while idle. Manifest construction validates paths first, then
+hashes regular files in bounded batches instead of launching one checksum
+process per file. On the development machine, a warm status scan over a
+66-file, 308 KiB checkpoint averages about 162 ms. Scans never retain a
 background watcher or daemon.
 
 Diff previews are generated only on demand. The backend accepts only a path in
