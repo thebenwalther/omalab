@@ -2,8 +2,10 @@
 
 set -euo pipefail
 
-readonly PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly TEST_ROOT="$(mktemp -d)"
+PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly PROJECT_ROOT
+TEST_ROOT="$(mktemp -d)"
+readonly TEST_ROOT
 readonly PACKAGE_ROOT="$TEST_ROOT/omarewind"
 
 cleanup() {
@@ -26,7 +28,7 @@ done < <(jq -r '.entryPoints[]' "$PACKAGE_ROOT/manifest.json")
 
 [[ -x "$PACKAGE_ROOT/bin/omarewind" ]]
 [[ "$(git -C "$PROJECT_ROOT" ls-tree HEAD bin/omarewind | awk '{print $1}')" == "100755" ]]
-[[ "$($PACKAGE_ROOT/bin/omarewind version)" == "$(jq -r '.version' "$PACKAGE_ROOT/manifest.json")" ]]
+[[ "$("$PACKAGE_ROOT/bin/omarewind" version)" == "$(jq -r '.version' "$PACKAGE_ROOT/manifest.json")" ]]
 
 if find "$PACKAGE_ROOT" -type f -size +1M -print -quit | grep -q .; then
   printf 'package unexpectedly contains a file larger than 1 MiB\n' >&2

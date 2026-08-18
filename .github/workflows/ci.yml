@@ -14,10 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install test dependencies
-        run: sudo apt-get update && sudo apt-get install --yes jq rsync
+        run: sudo apt-get update && sudo apt-get install --yes jq rsync shellcheck
       - name: Validate shell and manifest
         run: |
-          bash -n bin/omarewind test/backend-test.sh test/all
+          bash -n bin/omarewind test/all test/backend-test.sh test/package-test.sh
+          shellcheck --severity=style bin/omarewind test/all test/backend-test.sh test/package-test.sh
           jq -e '.schemaVersion == 1 and .id == "com.omarchy.omarewind"' manifest.json >/dev/null
       - name: Run isolated backend suite
         run: test/backend-test.sh

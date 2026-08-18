@@ -2,10 +2,21 @@
 
 set -euo pipefail
 
-readonly PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly QMLLINT="$(command -v qmllint 2>/dev/null || true)"
-readonly LINT_IMPORT_ROOT="$(mktemp -d)"
+PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly PROJECT_ROOT
+QMLLINT="$(command -v qmllint 2>/dev/null || true)"
+readonly QMLLINT
+SHELLCHECK="$(command -v shellcheck 2>/dev/null || true)"
+readonly SHELLCHECK
+LINT_IMPORT_ROOT="$(mktemp -d)"
+readonly LINT_IMPORT_ROOT
 mapfile -t QML_FILES < <(find "$PROJECT_ROOT" -maxdepth 1 -type f -name '*.qml' -print | sort)
+readonly -a SHELL_FILES=(
+  "$PROJECT_ROOT/bin/omarewind"
+  "$PROJECT_ROOT/test/all"
+  "$PROJECT_ROOT/test/backend-test.sh"
+  "$PROJECT_ROOT/test/package-test.sh"
+)
 
 cleanup() {
   rm -rf -- "$LINT_IMPORT_ROOT"
@@ -18,8 +29,11 @@ ln -s /usr/share/omarchy/shell "$LINT_IMPORT_ROOT/qs"
 "$PROJECT_ROOT/test/package-test.sh"
 bash -n "$PROJECT_ROOT/bin/omarewind"
 jq -e . "$PROJECT_ROOT/manifest.json" >/dev/null
-[[ "$($PROJECT_ROOT/bin/omarewind version)" == "$(jq -r '.version' "$PROJECT_ROOT/manifest.json")" ]]
+[[ "$("$PROJECT_ROOT/bin/omarewind" version)" == "$(jq -r '.version' "$PROJECT_ROOT/manifest.json")" ]]
 omarchy plugin validate "$PROJECT_ROOT"
+if [[ -n "$SHELLCHECK" ]]; then
+  "$SHELLCHECK" --severity=style "${SHELL_FILES[@]}"
+fi
 if [[ -n "$QMLLINT" ]]; then
   if ! "$QMLLINT" -I "$LINT_IMPORT_ROOT" "${QML_FILES[@]}" >"$LINT_IMPORT_ROOT/qmllint.log" 2>&1; then
     cat "$LINT_IMPORT_ROOT/qmllint.log" >&2

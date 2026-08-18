@@ -2,9 +2,11 @@
 
 set -euo pipefail
 
-readonly PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly PROJECT_ROOT
 readonly COMMAND="$PROJECT_ROOT/bin/omarewind"
-readonly TEST_ROOT="$(mktemp -d)"
+TEST_ROOT="$(mktemp -d)"
+readonly TEST_ROOT
 
 cleanup() {
   rm -rf -- "$TEST_ROOT"

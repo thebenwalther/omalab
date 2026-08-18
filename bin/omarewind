@@ -304,7 +304,8 @@ json_lines() {
 }
 
 write_diff_files() {
-  local work="$1" baseline="$ACTIVE_DIR/manifest.tsv" current="$work/current-manifest.tsv"
+  local work="$1"
+  local baseline="$ACTIVE_DIR/manifest.tsv" current="$work/current-manifest.tsv"
   write_manifest "$current"
   cut -f1 "$baseline" >"$work/baseline-paths"
   cut -f1 "$current" >"$work/current-paths"
