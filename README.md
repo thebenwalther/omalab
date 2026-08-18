@@ -155,8 +155,12 @@ The test suite uses an isolated fake home directory. It verifies change
 detection, confirmation enforcement, restoration, rewind undo, checkpoint
 integrity, concurrent starts, locale independence, symlink-escape resistance,
 temporary-state cleanup, owner-only permissions, history, self-preservation,
-manifest validity, shell syntax, and QML linting without touching the live
+manifest validity, packaged-archive integrity, strict ShellCheck analysis, QML
+linting, and Qt-native presentation-model behavior without touching the live
 desktop configuration.
+
+The privacy-safe prize recording sequence is documented in
+[`docs/DEMO.md`](docs/DEMO.md).
 
 ## Roadmap
 
