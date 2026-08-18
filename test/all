@@ -14,6 +14,7 @@ trap cleanup EXIT
 ln -s /usr/share/omarchy/shell "$LINT_IMPORT_ROOT/qs"
 
 "$PROJECT_ROOT/test/backend-test.sh"
+"$PROJECT_ROOT/test/package-test.sh"
 bash -n "$PROJECT_ROOT/bin/omarewind"
 jq -e . "$PROJECT_ROOT/manifest.json" >/dev/null
 [[ "$($PROJECT_ROOT/bin/omarewind version)" == "$(jq -r '.version' "$PROJECT_ROOT/manifest.json")" ]]

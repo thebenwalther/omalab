@@ -21,3 +21,7 @@ jobs:
           jq -e '.schemaVersion == 1 and .id == "com.omarchy.omarewind"' manifest.json >/dev/null
       - name: Run isolated backend suite
         run: test/backend-test.sh
+      - name: Verify packaged archive
+        run: |
+          git archive --format=tar HEAD | tar -tf - >/dev/null
+          test "$(git ls-tree HEAD bin/omarewind | awk '{print $1}')" = "100755"
