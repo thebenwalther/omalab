@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly QMLLINT="$(command -v qmllint 2>/dev/null || true)"
+readonly LINT_IMPORT_ROOT="$(mktemp -d)"
+
+cleanup() {
+  rm -rf -- "$LINT_IMPORT_ROOT"
+}
+trap cleanup EXIT
+
+ln -s /usr/share/omarchy/shell "$LINT_IMPORT_ROOT/qs"
+
+"$PROJECT_ROOT/test/backend-test.sh"
+bash -n "$PROJECT_ROOT/bin/omarewind"
+jq -e . "$PROJECT_ROOT/manifest.json" >/dev/null
+omarchy plugin validate "$PROJECT_ROOT"
+if [[ -n "$QMLLINT" ]]; then
+  if ! "$QMLLINT" -I "$LINT_IMPORT_ROOT" "$PROJECT_ROOT/BarWidget.qml" "$PROJECT_ROOT/Panel.qml" >"$LINT_IMPORT_ROOT/qmllint.log" 2>&1; then
+    cat "$LINT_IMPORT_ROOT/qmllint.log" >&2
+    exit 1
+  fi
+elif [[ -x /usr/lib/qt6/bin/qmllint ]]; then
+  if ! /usr/lib/qt6/bin/qmllint -I "$LINT_IMPORT_ROOT" "$PROJECT_ROOT/BarWidget.qml" "$PROJECT_ROOT/Panel.qml" >"$LINT_IMPORT_ROOT/qmllint.log" 2>&1; then
+    cat "$LINT_IMPORT_ROOT/qmllint.log" >&2
+    exit 1
+  fi
+else
+  printf 'qmllint not found\n' >&2
+  exit 1
+fi
+
+printf 'all tests: ok\n'

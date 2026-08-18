@@ -1,0 +1,409 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly PLUGIN_ID="com.omarchy.omarewind"
+readonly STATE_ROOT="${OMAREWIND_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarewind}"
+readonly ACTIVE_DIR="$STATE_ROOT/active"
+readonly HISTORY_DIR="$STATE_ROOT/history"
+
+readonly -a TRACKED_TARGETS=(
+  ".config/hypr"
+  ".config/omarchy"
+  ".config/alacritty"
+  ".config/foot"
+  ".config/kitty"
+  ".config/ghostty"
+  ".config/starship.toml"
+  ".config/fastfetch"
+  ".config/btop"
+  ".config/lazygit"
+  ".config/git"
+)
+
+usage() {
+  cat <<'EOF'
+Usage: omarewind <command>
+
+Commands:
+  start [label]    Start Fearless Mode and create a configuration checkpoint
+  status           Print current state and changes as JSON
+  changes          Alias for status
+  keep --yes       Keep the experiment and archive the checkpoint
+  rewind --yes     Restore checkpointed configuration and archive the experiment
+  history          List completed experiments as JSON
+  doctor           Verify runtime dependencies and print JSON
+EOF
+}
+
+fail() {
+  printf 'OmaRewind: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+ensure_state_dirs() {
+  mkdir -p -- "$STATE_ROOT" "$HISTORY_DIR"
+  chmod 700 "$STATE_ROOT" "$HISTORY_DIR" 2>/dev/null || true
+}
+
+notify() {
+  if command -v omarchy-notification-send >/dev/null 2>&1; then
+    omarchy-notification-send "$1" >/dev/null 2>&1 || true
+  fi
+}
+
+current_theme() {
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy theme current 2>/dev/null | head -n 1 || true
+  fi
+}
+
+current_packages() {
+  if command -v pacman >/dev/null 2>&1; then
+    pacman -Qqe 2>/dev/null | LC_ALL=C sort -u || true
+  fi
+}
+
+current_plugins() {
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy plugin list --json 2>/dev/null \
+      | jq -r '.[]? | select(.enabled == true) | .id' \
+      | LC_ALL=C sort -u || true
+  fi
+}
+
+is_ignored_path() {
+  local path="$1"
+  [[ "$path" == */.git || "$path" == */.git/* ]] && return 0
+  [[ "$path" == "$HOME/.config/omarchy/plugins/$PLUGIN_ID" ]] && return 0
+  [[ "$path" == "$HOME/.config/omarchy/plugins/$PLUGIN_ID/"* ]] && return 0
+  return 1
+}
+
+manifest_entry() {
+  local path="$1" relative signature
+  is_ignored_path "$path" && return 0
+  relative="${path#"$HOME"/}"
+
+  if [[ -L "$path" ]]; then
+    signature="L:$(readlink -- "$path")"
+  elif [[ -f "$path" ]]; then
+    signature="F:$(sha256sum -- "$path" | awk '{print $1}')"
+  else
+    return 0
+  fi
+
+  printf '%s\t%s\n' "$relative" "$signature"
+}
+
+write_manifest() {
+  local output="$1" target source path
+  local temp="${output}.tmp.$$"
+  : >"$temp"
+
+  for target in "${TRACKED_TARGETS[@]}"; do
+    source="$HOME/$target"
+    if [[ -L "$source" || -f "$source" ]]; then
+      manifest_entry "$source" >>"$temp"
+    elif [[ -d "$source" ]]; then
+      while IFS= read -r -d '' path; do
+        manifest_entry "$path" >>"$temp"
+      done < <(find "$source" \( -type f -o -type l \) -print0 2>/dev/null)
+    fi
+  done
+
+  LC_ALL=C sort -t $'\t' -k1,1 -u "$temp" >"$output"
+  rm -f -- "$temp"
+}
+
+copy_target_to_snapshot() {
+  local checkpoint="$1" relative="$2"
+  local source="$HOME/$relative" destination="$checkpoint/snapshot/$relative"
+
+  mkdir -p -- "$(dirname -- "$destination")"
+  if [[ -L "$source" || -f "$source" ]]; then
+    cp -a -- "$source" "$destination"
+  elif [[ -d "$source" ]]; then
+    mkdir -p -- "$destination"
+    if [[ "$relative" == ".config/omarchy" ]]; then
+      rsync -a --exclude='.git/' --exclude="plugins/$PLUGIN_ID/" -- "$source/" "$destination/"
+    else
+      rsync -a --exclude='.git/' -- "$source/" "$destination/"
+    fi
+  fi
+}
+
+record_targets() {
+  local checkpoint="$1" relative source kind
+  : >"$checkpoint/targets.tsv"
+  for relative in "${TRACKED_TARGETS[@]}"; do
+    source="$HOME/$relative"
+    if [[ -L "$source" ]]; then kind="link"
+    elif [[ -f "$source" ]]; then kind="file"
+    elif [[ -d "$source" ]]; then kind="dir"
+    else kind="missing"
+    fi
+    printf '%s\t%s\n' "$relative" "$kind" >>"$checkpoint/targets.tsv"
+    [[ "$kind" == "missing" ]] || copy_target_to_snapshot "$checkpoint" "$relative"
+  done
+}
+
+history_count() {
+  find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -printf '.' 2>/dev/null | wc -c
+}
+
+json_lines() {
+  jq -Rn '[inputs | select(length > 0)]'
+}
+
+write_diff_files() {
+  local work="$1" baseline="$ACTIVE_DIR/manifest.tsv" current="$work/current-manifest.tsv"
+  write_manifest "$current"
+  cut -f1 "$baseline" >"$work/baseline-paths"
+  cut -f1 "$current" >"$work/current-paths"
+  comm -13 "$work/baseline-paths" "$work/current-paths" >"$work/files-added"
+  comm -23 "$work/baseline-paths" "$work/current-paths" >"$work/files-deleted"
+  join -t $'\t' -1 1 -2 1 "$baseline" "$current" \
+    | awk -F $'\t' '$2 != $3 {print $1}' >"$work/files-modified"
+}
+
+write_list_diff() {
+  local baseline="$1" current="$2" added="$3" removed="$4"
+  comm -13 "$baseline" "$current" >"$added"
+  comm -23 "$baseline" "$current" >"$removed"
+}
+
+command_start() {
+  local label="${1:-Untitled experiment}" checkpoint now epoch id theme
+  [[ ! -e "$ACTIVE_DIR" ]] || fail "Fearless Mode is already active"
+
+  require_command jq
+  require_command rsync
+  require_command sha256sum
+  ensure_state_dirs
+
+  checkpoint="$(mktemp -d "$STATE_ROOT/.starting.XXXXXX")"
+  trap 'rm -rf -- "${checkpoint:-}"' ERR INT TERM
+  chmod 700 "$checkpoint"
+
+  epoch="$(date +%s)"
+  now="$(date --iso-8601=seconds)"
+  id="$(date +%Y%m%d-%H%M%S)"
+  theme="$(current_theme)"
+
+  jq -n \
+    --arg id "$id" \
+    --arg label "$label" \
+    --arg startedAt "$now" \
+    --argjson startedAtEpoch "$epoch" \
+    --arg theme "$theme" \
+    '{version: 1, id: $id, label: $label, startedAt: $startedAt, startedAtEpoch: $startedAtEpoch, theme: $theme, outcome: "active"}' \
+    >"$checkpoint/meta.json"
+
+  record_targets "$checkpoint"
+  write_manifest "$checkpoint/manifest.tsv"
+  current_packages >"$checkpoint/packages.txt"
+  current_plugins >"$checkpoint/plugins.txt"
+
+  mv -- "$checkpoint" "$ACTIVE_DIR"
+  trap - ERR INT TERM
+  notify "OmaRewind · Fearless Mode started"
+  command_status
+}
+
+command_status() {
+  local history work meta now epoch elapsed
+  ensure_state_dirs
+  history="$(history_count | tr -d ' ')"
+
+  if [[ ! -d "$ACTIVE_DIR" ]]; then
+    jq -n --argjson historyCount "${history:-0}" \
+      '{active: false, totalChanges: 0, historyCount: $historyCount, files: {added: 0, modified: 0, deleted: 0, total: 0}, packages: {added: 0, removed: 0, total: 0}, plugins: {added: 0, removed: 0, total: 0}, changes: []}'
+    return 0
+  fi
+
+  work="$(mktemp -d "$STATE_ROOT/.status.XXXXXX")"
+  trap 'rm -rf -- "${work:-}"' RETURN INT TERM
+
+  write_diff_files "$work"
+  current_packages >"$work/current-packages"
+  current_plugins >"$work/current-plugins"
+  write_list_diff "$ACTIVE_DIR/packages.txt" "$work/current-packages" "$work/packages-added" "$work/packages-removed"
+  write_list_diff "$ACTIVE_DIR/plugins.txt" "$work/current-plugins" "$work/plugins-added" "$work/plugins-removed"
+
+  meta="$(<"$ACTIVE_DIR/meta.json")"
+  epoch="$(jq -r '.startedAtEpoch // 0' <<<"$meta")"
+  now="$(date +%s)"
+  elapsed=$((now - epoch))
+  ((elapsed < 0)) && elapsed=0
+
+  jq -n \
+    --argjson meta "$meta" \
+    --argjson elapsedSeconds "$elapsed" \
+    --argjson historyCount "${history:-0}" \
+    --argjson filesAdded "$(wc -l <"$work/files-added")" \
+    --argjson filesModified "$(wc -l <"$work/files-modified")" \
+    --argjson filesDeleted "$(wc -l <"$work/files-deleted")" \
+    --argjson packagesAdded "$(wc -l <"$work/packages-added")" \
+    --argjson packagesRemoved "$(wc -l <"$work/packages-removed")" \
+    --argjson pluginsAdded "$(wc -l <"$work/plugins-added")" \
+    --argjson pluginsRemoved "$(wc -l <"$work/plugins-removed")" \
+    --argjson addedFiles "$(json_lines <"$work/files-added")" \
+    --argjson modifiedFiles "$(json_lines <"$work/files-modified")" \
+    --argjson deletedFiles "$(json_lines <"$work/files-deleted")" \
+    --argjson addedPackages "$(json_lines <"$work/packages-added")" \
+    --argjson removedPackages "$(json_lines <"$work/packages-removed")" \
+    --argjson addedPlugins "$(json_lines <"$work/plugins-added")" \
+    --argjson removedPlugins "$(json_lines <"$work/plugins-removed")" \
+    '
+      def tagged($kind; $items): [$items[] | {kind: $kind, path: .}];
+      ($filesAdded + $filesModified + $filesDeleted) as $fileTotal |
+      ($packagesAdded + $packagesRemoved) as $packageTotal |
+      ($pluginsAdded + $pluginsRemoved) as $pluginTotal |
+      {
+        active: true,
+        id: $meta.id,
+        label: $meta.label,
+        startedAt: $meta.startedAt,
+        startedAtEpoch: $meta.startedAtEpoch,
+        elapsedSeconds: $elapsedSeconds,
+        theme: $meta.theme,
+        historyCount: $historyCount,
+        files: {added: $filesAdded, modified: $filesModified, deleted: $filesDeleted, total: $fileTotal},
+        packages: {added: $packagesAdded, removed: $packagesRemoved, total: $packageTotal, addedNames: $addedPackages, removedNames: $removedPackages},
+        plugins: {added: $pluginsAdded, removed: $pluginsRemoved, total: $pluginTotal, addedNames: $addedPlugins, removedNames: $removedPlugins},
+        totalChanges: ($fileTotal + $packageTotal + $pluginTotal),
+        changes: ((tagged("added"; $addedFiles) + tagged("modified"; $modifiedFiles) + tagged("deleted"; $deletedFiles))[:12])
+      }
+    '
+
+  rm -rf -- "$work"
+  trap - RETURN INT TERM
+}
+
+archive_active() {
+  local outcome="$1" destination temp
+  [[ -d "$ACTIVE_DIR" ]] || fail "Fearless Mode is not active"
+  temp="$ACTIVE_DIR/meta.json.tmp"
+  jq --arg outcome "$outcome" --arg finishedAt "$(date --iso-8601=seconds)" \
+    '.outcome = $outcome | .finishedAt = $finishedAt' "$ACTIVE_DIR/meta.json" >"$temp"
+  mv -- "$temp" "$ACTIVE_DIR/meta.json"
+  destination="$HISTORY_DIR/$(jq -r '.id' "$ACTIVE_DIR/meta.json")-$outcome"
+  [[ ! -e "$destination" ]] || destination="$destination-$(date +%s)"
+  mv -- "$ACTIVE_DIR" "$destination"
+}
+
+command_keep() {
+  [[ "${1:-}" == "--yes" ]] || fail "keeping an experiment requires --yes"
+  ensure_state_dirs
+  archive_active "kept"
+  notify "OmaRewind · Changes kept"
+  command_status
+}
+
+safe_target_path() {
+  local path="$1"
+  [[ "$path" == "$HOME/.config/"* ]] || fail "refusing unsafe restore path: $path"
+}
+
+restore_target() {
+  local relative="$1" kind="$2"
+  local destination="$HOME/$relative" source="$ACTIVE_DIR/snapshot/$relative"
+  safe_target_path "$destination"
+
+  case "$kind" in
+    missing)
+      rm -rf -- "$destination"
+      ;;
+    dir)
+      mkdir -p -- "$destination"
+      if [[ "$relative" == ".config/omarchy" ]]; then
+        rsync -a --delete --exclude='.git/' --exclude="plugins/$PLUGIN_ID/" -- "$source/" "$destination/"
+      else
+        rsync -a --delete --exclude='.git/' -- "$source/" "$destination/"
+      fi
+      ;;
+    file|link)
+      rm -rf -- "$destination"
+      mkdir -p -- "$(dirname -- "$destination")"
+      cp -a -- "$source" "$destination"
+      ;;
+    *) fail "unknown checkpoint target type: $kind" ;;
+  esac
+}
+
+command_rewind() {
+  local relative kind theme current
+  [[ "${1:-}" == "--yes" ]] || fail "rewinding configuration requires --yes"
+  [[ -d "$ACTIVE_DIR" ]] || fail "Fearless Mode is not active"
+  ensure_state_dirs
+  require_command rsync
+
+  theme="$(jq -r '.theme // empty' "$ACTIVE_DIR/meta.json")"
+  current="$(current_theme)"
+  if [[ -n "$theme" && "$theme" != "$current" ]] && command -v omarchy >/dev/null 2>&1; then
+    omarchy theme set "$theme" >/dev/null 2>&1 || true
+  fi
+
+  while IFS=$'\t' read -r relative kind; do
+    [[ -n "$relative" ]] || continue
+    restore_target "$relative" "$kind"
+  done <"$ACTIVE_DIR/targets.tsv"
+
+  if command -v hyprctl >/dev/null 2>&1; then
+    hyprctl reload >/dev/null 2>&1 || true
+  fi
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy shell -q shell rescanPlugins >/dev/null 2>&1 || true
+  fi
+
+  archive_active "rewound"
+  notify "OmaRewind · Configuration restored"
+  command_status
+}
+
+command_history() {
+  ensure_state_dirs
+  local item first=true
+  printf '['
+  while IFS= read -r item; do
+    [[ -f "$item/meta.json" ]] || continue
+    $first || printf ','
+    jq -c '.' "$item/meta.json"
+    first=false
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort -r)
+  printf ']\n'
+}
+
+command_doctor() {
+  local missing=() command
+  for command in jq rsync sha256sum find comm join awk; do
+    command -v "$command" >/dev/null 2>&1 || missing+=("$command")
+  done
+  jq -n \
+    --argjson missing "$(printf '%s\n' "${missing[@]:-}" | json_lines)" \
+    --arg stateRoot "$STATE_ROOT" \
+    --arg pluginId "$PLUGIN_ID" \
+    '{ok: ($missing | length == 0), missing: $missing, stateRoot: $stateRoot, pluginId: $pluginId}'
+}
+
+main() {
+  local command="${1:-}"
+  shift || true
+  case "$command" in
+    start) command_start "$@" ;;
+    status|changes) command_status ;;
+    keep) command_keep "$@" ;;
+    rewind) command_rewind "$@" ;;
+    history) command_history ;;
+    doctor) command_doctor ;;
+    -h|--help|help|"") usage ;;
+    *) usage >&2; fail "unknown command: $command" ;;
+  esac
+}
+
+main "$@"

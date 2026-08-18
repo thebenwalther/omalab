@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "com.omarchy.omarewind",
+  "name": "OmaRewind",
+  "version": "0.1.0",
+  "author": "OmaRewind contributors",
+  "description": "Fearless Mode for Omarchy — checkpoint your desktop configuration, experiment freely, then keep or rewind.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaRewind",
+    "description": "Experiment with your Omarchy configuration and safely rewind it.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
