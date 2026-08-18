@@ -8,7 +8,10 @@ BorderSurface {
   id: root
 
   property string path: ""
-  property var data: null
+  // Item already owns a default `data` property for visual children. Using
+  // that name for preview JSON steals the Column from the scene graph and
+  // collapses the card to an empty strip.
+  property var preview: null
   property bool busy: false
   property string error: ""
   property color foreground: Color.foreground
@@ -57,16 +60,16 @@ BorderSurface {
       wrapMode: Text.WordWrap
     }
     Text {
-      visible: root.data && !root.busy
+      visible: root.preview && !root.busy
       width: parent.width
-      text: root.data ? String(root.data.text || "") : ""
+      text: root.preview ? String(root.preview.text || "") : ""
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
       wrapMode: Text.WrapAnywhere
     }
     Text {
-      visible: root.data && root.data.truncated === true
+      visible: root.preview && root.preview.truncated === true
       width: parent.width
       text: "PREVIEW LIMITED TO 36 LINES / 16 KIB"
       color: root.dim

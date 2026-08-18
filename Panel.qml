@@ -612,7 +612,7 @@ Panel {
               visible: root.previewPath !== ""
               width: parent.width
               path: root.previewPath
-              data: root.previewData
+              preview: root.previewData
               busy: root.previewBusy
               error: root.previewError
               foreground: root.foreground
