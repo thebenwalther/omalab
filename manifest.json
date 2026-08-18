@@ -16,6 +16,32 @@
     "description": "Experiment with your Omarchy configuration and safely rewind it.",
     "category": "System",
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": {
+      "activePollSeconds": 5,
+      "idlePollSeconds": 30
+    },
+    "schema": [
+      {
+        "key": "activePollSeconds",
+        "type": "integer",
+        "label": "Active refresh (seconds)",
+        "description": "How often to scan for changes while Fearless Mode is active.",
+        "min": 2,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 5
+      },
+      {
+        "key": "idlePollSeconds",
+        "type": "integer",
+        "label": "Idle refresh (seconds)",
+        "description": "How often to check for checkpoint and history changes while idle.",
+        "min": 10,
+        "max": 300,
+        "step": 10,
+        "defaultValue": 30
+      }
+    ]
   }
 }

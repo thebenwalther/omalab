@@ -28,6 +28,8 @@ BarWidget {
   readonly property bool fearless: status && status.active === true
   readonly property int changeCount: status ? Number(status.totalChanges) || 0 : 0
   readonly property bool statusError: lastStatusExitCode > 0
+  readonly property int activePollMs: Math.max(2, Math.min(60, Number(setting("activePollSeconds", 5)) || 5)) * 1000
+  readonly property int idlePollMs: Math.max(10, Math.min(300, Number(setting("idlePollSeconds", 30)) || 30)) * 1000
 
   function injectPanel() {
     var target = panelLoader.item
@@ -145,7 +147,7 @@ BarWidget {
   }
 
   Timer {
-    interval: root.fearless ? 5000 : 30000
+    interval: root.fearless ? root.activePollMs : root.idlePollMs
     repeat: true
     running: root.commandPath !== ""
     triggeredOnStart: true

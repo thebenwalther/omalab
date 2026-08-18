@@ -49,6 +49,9 @@ intentional exits:
 Both actions require a second click within five seconds. The same flow is fully
 keyboard accessible with `S`, `K`, `R`, `U`, and `Esc`.
 
+Active and idle scan intervals can be tuned from Omarchy's bar-widget settings;
+the defaults are five and thirty seconds respectively.
+
 After a rewind, the idle panel offers **Undo Last Rewind**. OmaRewind can do
 that because it captures the experiment into the owner-only local
 state directory before restoring anything. Undo also uses a two-step
