@@ -35,7 +35,7 @@ if find "$PACKAGE_ROOT" -type f -size +1M -print -quit | grep -q .; then
 fi
 
 if rg -n 'TODO|FIXME|github\.com/<|example\.com' "$PACKAGE_ROOT" \
-  -g '!test/package-test.sh' >/dev/null; then
+  -g '!**/package-test.sh' >/dev/null; then
   printf 'package contains unfinished placeholder text\n' >&2
   exit 1
 fi
