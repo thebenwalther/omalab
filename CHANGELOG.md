@@ -16,6 +16,8 @@
   status-scan time by roughly 72% on the development checkpoint.
 - Preserve spaces and literal backslashes in valid configuration filenames.
 - Enforce strict ShellCheck analysis across the backend and test harness in CI.
+- Unit-test QML status parsing and presentation formatting under Qt itself.
+- Correct the one-minute elapsed label to use singular grammar.
 - Preserve last-good UI state and surface backend failures prominently.
 - Move keep and rewind controls above the scrollable change list.
 

@@ -6,6 +6,9 @@ PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly PROJECT_ROOT
 QMLLINT="$(command -v qmllint 2>/dev/null || true)"
 readonly QMLLINT
+QMLTESTRUNNER="$(command -v qmltestrunner 2>/dev/null || true)"
+[[ -n "$QMLTESTRUNNER" ]] || QMLTESTRUNNER="/usr/lib/qt6/bin/qmltestrunner"
+readonly QMLTESTRUNNER
 SHELLCHECK="$(command -v shellcheck 2>/dev/null || true)"
 readonly SHELLCHECK
 LINT_IMPORT_ROOT="$(mktemp -d)"
@@ -48,5 +51,11 @@ else
   printf 'qmllint not found\n' >&2
   exit 1
 fi
+
+if [[ ! -x "$QMLTESTRUNNER" ]]; then
+  printf 'qmltestrunner not found\n' >&2
+  exit 1
+fi
+QT_QPA_PLATFORM=offscreen "$QMLTESTRUNNER" -input "$PROJECT_ROOT/test/qml" -silent
 
 printf 'all tests: ok\n'

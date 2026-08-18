@@ -28,7 +28,10 @@ function parseStatus(raw) {
 function formatElapsed(seconds) {
   var value = Math.max(0, Number(seconds) || 0)
   if (value < 60) return "JUST STARTED"
-  if (value < 3600) return Math.floor(value / 60) + " MINUTES"
+  if (value < 3600) {
+    var wholeMinutes = Math.floor(value / 60)
+    return wholeMinutes + (wholeMinutes === 1 ? " MINUTE" : " MINUTES")
+  }
   if (value < 86400) {
     var hours = Math.floor(value / 3600)
     var minutes = Math.floor((value % 3600) / 60)
