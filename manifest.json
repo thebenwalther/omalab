@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "com.omarchy.omarewind",
   "name": "OmaRewind",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "Ben Walther",
   "description": "Fearless Mode for Omarchy — checkpoint your desktop configuration, experiment freely, then keep or rewind.",
   "kinds": [

@@ -16,7 +16,14 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes jq qml6-module-qtquick qml6-module-qttest qt6-declarative-dev-tools rsync shellcheck
+          sudo apt-get install --yes \
+            jq \
+            qml6-module-qtqml-workerscript \
+            qml6-module-qtquick \
+            qml6-module-qttest \
+            qt6-declarative-dev-tools \
+            rsync \
+            shellcheck
       - name: Validate shell and manifest
         run: |
           bash -n bin/omarewind test/all test/backend-test.sh test/package-test.sh

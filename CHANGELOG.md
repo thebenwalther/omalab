@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Make the idle panel's three-step checkpoint, experiment, and rewind flow
+  explicit before users begin.
+- Install the complete Qt QML runtime required by the presentation-model tests
+  on GitHub Actions.
+
 ## 0.3.0
 
 - Preserve every experiment before rewind and support Undo Last Rewind.

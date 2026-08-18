@@ -349,6 +349,6 @@ assert_json "$doctor" '.ok == false and .history.corruptEntries == 1'
 cp "$TEST_ROOT/history-meta.good" "$corrupt_history/meta.json"
 
 doctor="$($COMMAND doctor)"
-assert_json "$doctor" '.ok == true and .pluginId == "com.omarchy.omarewind" and .version == "0.3.0"'
+assert_json "$doctor" '.ok == true and .pluginId == "com.omarchy.omarewind" and .version == "0.3.1"'
 
 printf 'backend-test: ok\n'

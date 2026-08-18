@@ -415,6 +415,19 @@ Panel {
             lineHeight: 1.25
           }
 
+          Text {
+            visible: !root.fearless
+            width: parent.width
+            text: "1  START A CHECKPOINT   →   2  TRY A CHANGE   →   3  KEEP OR REWIND"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            font.letterSpacing: 0.5
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+          }
+
           TextField {
             id: experimentNameField
             visible: !root.fearless
@@ -438,7 +451,7 @@ Panel {
           Button {
             visible: !root.fearless
             width: parent.width
-            text: root.busy && root.activeAction === "start" ? "Creating checkpoint…" : "Start Fearless Mode"
+            text: root.busy && root.activeAction === "start" ? "Creating checkpoint…" : "1 · Start Fearless Mode"
             iconText: "\uf0c3"
             selected: true
             bordered: true

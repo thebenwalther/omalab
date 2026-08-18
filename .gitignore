@@ -2,3 +2,4 @@
 *.tmp
 .qmllint.ini
 result/
+omarewind-*.tar.gz*
