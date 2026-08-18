@@ -215,6 +215,12 @@ if "$COMMAND" status >/dev/null 2>&1; then
 fi
 rm -- "$OMAREWIND_STATE_HOME/active"
 
+if "$COMMAND" start $'unsafe\nlabel' >/dev/null 2>&1; then
+  printf 'start unexpectedly accepted a multiline label\n' >&2
+  exit 1
+fi
+[[ ! -d "$OMAREWIND_STATE_HOME/active" ]]
+
 # Unsupported path separators fail atomically rather than producing an
 # ambiguous TSV checkpoint that could restore the wrong file.
 printf 'odd\n' >"$HOME/.config/hypr/has"$'\t'"tab"
@@ -227,6 +233,6 @@ fi
 rm -- "$HOME/.config/hypr/has"$'\t'"tab"
 
 doctor="$($COMMAND doctor)"
-assert_json "$doctor" '.ok == true and .pluginId == "com.omarchy.omarewind"'
+assert_json "$doctor" '.ok == true and .pluginId == "com.omarchy.omarewind" and .version == "0.3.0"'
 
 printf 'backend-test: ok\n'

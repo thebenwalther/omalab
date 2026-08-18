@@ -58,17 +58,21 @@ Panel {
       root.resultText = "OmaRewind could not locate its checkpoint command."
       return
     }
+    var command = []
+    if (action === "start") {
+      var label = String(experimentNameField.text || "").trim()
+      command = [root.effectiveCommandPath, "start", label !== "" ? label : "Omarchy experiment"]
+    } else if (action === "keep") command = [root.effectiveCommandPath, "keep", "--yes"]
+    else if (action === "rewind") command = [root.effectiveCommandPath, "rewind", "--yes"]
+    else if (action === "undo") command = [root.effectiveCommandPath, "undo", "--yes"]
+    else {
+      root.resultText = "Unknown OmaRewind action."
+      return
+    }
     activeAction = action
     resultText = ""
     busy = true
-    if (action === "start") {
-      var label = String(experimentNameField.text || "").trim()
-      actionProc.command = [root.effectiveCommandPath, "start", label !== "" ? label : "Omarchy experiment"]
-    }
-    else if (action === "keep") actionProc.command = [root.effectiveCommandPath, "keep", "--yes"]
-    else if (action === "rewind") actionProc.command = [root.effectiveCommandPath, "rewind", "--yes"]
-    else if (action === "undo") actionProc.command = [root.effectiveCommandPath, "undo", "--yes"]
-    else return
+    actionProc.command = command
     actionProc.running = true
   }
 
@@ -225,9 +229,9 @@ Panel {
             width: parent.width
             foreground: root.foreground
             fontFamily: root.fontFamily
-            title: root.fearless ? "Fearless Mode" : "Ready to experiment"
+            title: root.fearless ? String(root.status.label || "Fearless Mode") : "Ready to experiment"
             meta: root.fearless
-              ? Model.formatElapsed(root.status.elapsedSeconds) + " · " + String(root.status.theme || "CURRENT THEME")
+              ? "FEARLESS MODE · " + Model.formatElapsed(root.status.elapsedSeconds) + " · " + String(root.status.theme || "CURRENT THEME")
               : "OMA REWIND IS STANDING BY"
             detail: root.fearless ? Model.plural(root.status.totalChanges, "CHANGE") : "SAFE"
             iconComponent: Component {
@@ -291,6 +295,16 @@ Panel {
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.WordWrap
               }
+              Button {
+                visible: root.backendError
+                text: root.hostWidget && root.hostWidget.refreshing ? "Checking…" : "Retry Check"
+                iconText: "\uf021"
+                bordered: true
+                foreground: root.foreground
+                accent: root.accent
+                enabled: root.hostWidget && !root.hostWidget.refreshing
+                onClicked: if (root.hostWidget) root.hostWidget.refresh()
+              }
             }
           }
 
@@ -307,7 +321,7 @@ Panel {
               bordered: true
               foreground: root.foreground
               accent: root.accent
-              enabled: !root.busy
+              enabled: !root.busy && !root.backendError
               onClicked: root.requestKeep()
             }
 
@@ -319,7 +333,7 @@ Panel {
               selected: root.rewindArmed
               foreground: root.rewindArmed ? root.urgent : root.foreground
               accent: root.rewindArmed ? root.urgent : root.accent
-              enabled: !root.busy
+              enabled: !root.busy && !root.backendError
               onClicked: root.requestRewind()
             }
           }
@@ -343,7 +357,7 @@ Panel {
             foreground: root.foreground
             font.family: root.fontFamily
             maximumLength: 60
-            enabled: !root.busy
+            enabled: !root.busy && !root.backendError
 
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) {
@@ -364,7 +378,7 @@ Panel {
             bordered: true
             foreground: root.foreground
             accent: root.accent
-            enabled: !root.busy && root.effectiveCommandPath !== ""
+            enabled: !root.busy && !root.backendError && root.effectiveCommandPath !== ""
             onClicked: root.beginAction("start")
           }
 
@@ -434,7 +448,7 @@ Panel {
               selected: root.undoArmed
               foreground: root.undoArmed ? root.urgent : root.foreground
               accent: root.undoArmed ? root.urgent : root.accent
-              enabled: !root.busy
+              enabled: !root.busy && !root.backendError
               onClicked: root.requestUndo()
             }
           }
@@ -497,6 +511,51 @@ Panel {
                     }
                   }
                 }
+              }
+            }
+          }
+
+          BorderSurface {
+            visible: root.fearless && root.status.packages && root.status.packages.total > 0
+            width: parent.width
+            implicitHeight: packageWarningColumn.implicitHeight + Style.space(20)
+            radius: Style.cornerRadius
+            color: Style.normalFillFor(root.urgent, root.accent)
+            borderSpec: Border.controlSpec("normal", root.urgent, root.accent)
+
+            Column {
+              id: packageWarningColumn
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.margins: Style.space(10)
+              spacing: Style.space(3)
+
+              Text {
+                width: parent.width
+                text: "PACKAGE CHANGES STAY IN PLACE"
+                color: root.urgent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                font.letterSpacing: 1
+              }
+              Text {
+                width: parent.width
+                text: "Config rewind never installs or removes packages. Use the system checkpoint for a complete machine rollback."
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+              Text {
+                visible: Model.changedNames(root.status.packages) !== ""
+                width: parent.width
+                text: Model.changedNames(root.status.packages)
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
               }
             }
           }

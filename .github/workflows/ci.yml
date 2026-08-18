@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install --yes jq rsync
+      - name: Validate shell and manifest
+        run: |
+          bash -n bin/omarewind test/backend-test.sh test/all
+          jq -e '.schemaVersion == 1 and .id == "com.omarchy.omarewind"' manifest.json >/dev/null
+      - name: Run isolated backend suite
+        run: test/backend-test.sh

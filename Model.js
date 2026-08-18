@@ -76,5 +76,17 @@ function lastSessionMeta(session) {
 function tooltip(status) {
   if (!status || !status.active) return "OmaRewind · Start Fearless Mode"
   var count = Number(status.totalChanges) || 0
-  return "Fearless Mode · " + plural(count, "change").toLowerCase()
+  var label = String(status.label || "Fearless Mode")
+  return label + " · " + plural(count, "change").toLowerCase()
+}
+
+function changedNames(value) {
+  if (!value) return ""
+  var names = []
+  var added = value.addedNames || []
+  var removed = value.removedNames || []
+  for (var i = 0; i < added.length; i++) names.push("+" + added[i])
+  for (var j = 0; j < removed.length; j++) names.push("−" + removed[j])
+  if (names.length > 4) return names.slice(0, 4).join("  ") + "  +" + (names.length - 4) + " more"
+  return names.join("  ")
 }

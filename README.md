@@ -1,5 +1,7 @@
 # OmaRewind
 
+![OmaRewind — Fearless Mode for Omarchy](docs/hero.svg)
+
 **Fearless Mode for Omarchy.** Capture your desktop configuration, experiment
 freely, then keep the result or rewind to exactly where you started.
 
@@ -29,8 +31,8 @@ system package set is not.
 
 ## The experience
 
-When idle, OmaRewind is a small history icon in the bar. Start Fearless Mode
-and it becomes a live badge:
+When idle, OmaRewind is a small history icon in the bar. Give the experiment an
+optional name, start Fearless Mode, and it becomes a live badge:
 
 ```text
 FEARLESS · 7
@@ -147,7 +149,7 @@ desktop configuration.
 
 ## Roadmap
 
-- A visual experiment timeline and user-named checkpoints.
+- A full visual experiment timeline with search and filtering.
 - Selective per-file rewind with a readable diff preview.
 - Package reconciliation plans that open in a terminal for explicit review.
 - Snapper checkpoint detection and pairing without maintaining a privileged

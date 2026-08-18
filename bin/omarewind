@@ -8,6 +8,7 @@ export LC_ALL=C
 umask 077
 
 readonly PLUGIN_ID="com.omarchy.omarewind"
+readonly VERSION="0.3.0"
 readonly STATE_ROOT="${OMAREWIND_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarewind}"
 readonly ACTIVE_DIR="$STATE_ROOT/active"
 readonly HISTORY_DIR="$STATE_ROOT/history"
@@ -40,6 +41,7 @@ Commands:
   undo --yes       Undo the most recent configuration rewind
   history          List completed experiments as JSON
   doctor           Verify runtime dependencies and print JSON
+  version          Print the OmaRewind version
 EOF
 }
 
@@ -300,6 +302,8 @@ write_list_diff() {
 command_start() (
   local label="${1:-Untitled experiment}" checkpoint now epoch id theme
   [[ ! -e "$ACTIVE_DIR" ]] || fail "Fearless Mode is already active"
+  [[ -n "$label" && "${#label}" -le 120 ]] || fail "experiment label must be between 1 and 120 characters"
+  [[ "$label" != *$'\t'* && "$label" != *$'\n'* && "$label" != *$'\r'* ]] || fail "experiment label must be a single line"
 
   require_command jq
   require_command rsync
@@ -312,7 +316,7 @@ command_start() (
 
   epoch="$(date +%s)"
   now="$(date --iso-8601=seconds)"
-  id="$(date +%Y%m%d-%H%M%S)"
+  id="$(date +%Y%m%d-%H%M%S-%N)"
   theme="$(current_theme)"
 
   jq -n \
@@ -420,14 +424,18 @@ command_status() (
 )
 
 archive_active() {
-  local outcome="$1" destination temp
+  local outcome="$1" destination base temp counter=1
   [[ -d "$ACTIVE_DIR" ]] || fail "Fearless Mode is not active"
   temp="$ACTIVE_DIR/meta.json.tmp"
   jq --arg outcome "$outcome" --arg finishedAt "$(date --iso-8601=seconds)" \
     '.outcome = $outcome | .finishedAt = $finishedAt' "$ACTIVE_DIR/meta.json" >"$temp"
   mv -T -- "$temp" "$ACTIVE_DIR/meta.json"
-  destination="$HISTORY_DIR/$(jq -r '.id' "$ACTIVE_DIR/meta.json")-$outcome"
-  [[ ! -e "$destination" ]] || destination="$destination-$(date +%s)"
+  base="$HISTORY_DIR/$(jq -r '.id' "$ACTIVE_DIR/meta.json")-$outcome"
+  destination="$base"
+  while [[ -e "$destination" ]]; do
+    destination="$base-$counter"
+    counter=$((counter + 1))
+  done
   mv -T -- "$ACTIVE_DIR" "$destination"
 }
 
@@ -592,15 +600,40 @@ command_history() {
 }
 
 command_doctor() {
-  local missing=() command
-  for command in jq rsync sha256sum find comm join awk cmp flock realpath; do
+  local missing=() command active=false integrity='null' state_bytes state_mode lock_mode stale history
+  for command in jq rsync sha256sum find sort cut comm join awk cmp flock realpath stat du; do
     command -v "$command" >/dev/null 2>&1 || missing+=("$command")
   done
+  state_bytes="$(du -sb -- "$STATE_ROOT" | cut -f1)"
+  state_mode="$(stat -c '%a' "$STATE_ROOT")"
+  lock_mode="$(stat -c '%a' "$LOCK_FILE")"
+  stale="$(find "$STATE_ROOT" -mindepth 1 -maxdepth 1 \( -name '.status.*' -o -name '.starting.*' -o -name '.verify.*' \) -printf '.\n' | wc -l)"
+  history="$(history_count | tr -d ' ')"
+  if [[ -d "$ACTIVE_DIR" ]]; then
+    active=true
+    if verify_checkpoint "$ACTIVE_DIR" >/dev/null 2>&1; then integrity=true; else integrity=false; fi
+  fi
   jq -n \
     --argjson missing "$(printf '%s\n' "${missing[@]:-}" | json_lines)" \
     --arg stateRoot "$STATE_ROOT" \
     --arg pluginId "$PLUGIN_ID" \
-    '{ok: ($missing | length == 0), missing: $missing, stateRoot: $stateRoot, pluginId: $pluginId}'
+    --arg version "$VERSION" \
+    --arg stateMode "$state_mode" \
+    --arg lockMode "$lock_mode" \
+    --argjson stateBytes "$state_bytes" \
+    --argjson historyCount "${history:-0}" \
+    --argjson staleEntries "$stale" \
+    --argjson active "$active" \
+    --argjson integrity "$integrity" \
+    '{
+      ok: (($missing | length) == 0 and $stateMode == "700" and $lockMode == "600" and $staleEntries == 0 and $integrity != false),
+      missing: $missing,
+      pluginId: $pluginId,
+      version: $version,
+      state: {path: $stateRoot, bytes: $stateBytes, mode: $stateMode, lockMode: $lockMode, staleEntries: $staleEntries},
+      checkpoint: {active: $active, integrity: $integrity},
+      historyCount: $historyCount
+    }'
 }
 
 main() {
@@ -614,6 +647,7 @@ main() {
     undo) with_state_lock -x command_undo "$@" ;;
     history) with_state_lock -s command_history ;;
     doctor) with_state_lock -s command_doctor ;;
+    version) printf '%s\n' "$VERSION" ;;
     -h|--help|help|"") usage ;;
     *) usage >&2; fail "unknown command: $command" ;;
   esac
