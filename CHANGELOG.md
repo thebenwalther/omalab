@@ -18,6 +18,8 @@
 - Enforce strict ShellCheck analysis across the backend and test harness in CI.
 - Unit-test QML status parsing and presentation formatting under Qt itself.
 - Correct the one-minute elapsed label to use singular grammar.
+- Fix live diff cards being collapsed by a collision with QML's built-in
+  `Item.data` property.
 - Preserve last-good UI state and surface backend failures prominently.
 - Move keep and rewind controls above the scrollable change list.
 
