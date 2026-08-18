@@ -24,6 +24,10 @@ Panel {
   property bool undoArmed: false
   property bool backendError: false
   property string backendErrorText: ""
+  property string previewPath: ""
+  property var previewData: null
+  property bool previewBusy: false
+  property string previewError: ""
 
   readonly property string effectiveCommandPath: root.commandPath !== ""
     ? root.commandPath
@@ -46,6 +50,9 @@ Panel {
     rewindArmed = false
     keepArmed = false
     undoArmed = false
+    previewPath = ""
+    previewData = null
+    previewError = ""
     root.controller.hide()
   }
 
@@ -115,6 +122,31 @@ Panel {
     if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation omarchy snapshot create")
   }
 
+  function hasChangePath(path) {
+    var changes = root.status && root.status.changes ? root.status.changes : []
+    for (var i = 0; i < changes.length; i++) {
+      if (String(changes[i].path || "") === path) return true
+    }
+    return false
+  }
+
+  function loadPreview(path) {
+    var value = String(path || "")
+    if (root.previewBusy || root.effectiveCommandPath === "") return
+    if (root.previewPath === value) {
+      root.previewPath = ""
+      root.previewData = null
+      root.previewError = ""
+      return
+    }
+    root.previewPath = value
+    root.previewData = null
+    root.previewError = ""
+    root.previewBusy = true
+    previewProc.command = [root.effectiveCommandPath, "preview", value]
+    previewProc.running = true
+  }
+
   function metricModel() {
     return [
       { label: "FILES", value: status.files ? status.files.total : 0, detail: fileDetail() },
@@ -151,9 +183,17 @@ Panel {
     if (!fearless) {
       rewindArmed = false
       keepArmed = false
+      previewPath = ""
+      previewData = null
+      previewError = ""
     } else {
       undoArmed = false
       experimentNameField.text = ""
+      if (previewPath !== "" && !hasChangePath(previewPath)) {
+        previewPath = ""
+        previewData = null
+        previewError = ""
+      }
     }
   }
 
@@ -187,6 +227,30 @@ Panel {
     }
   }
 
+  Process {
+    id: previewProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var raw = String(text || "").trim()
+        if (raw === "") return
+        try { root.previewData = JSON.parse(raw) }
+        catch (error) { root.previewError = "Preview returned invalid data." }
+      }
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var message = String(text || "").trim()
+        if (message !== "") root.previewError = message.replace(/^OmaRewind:\s*/, "")
+      }
+    }
+    onExited: function(exitCode) {
+      root.previewBusy = false
+      if (exitCode !== 0 && root.previewError === "") root.previewError = "Preview could not be generated."
+    }
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -210,6 +274,8 @@ Panel {
         if (key === "s" && !root.fearless) root.beginAction("start")
         else if (key === "k" && root.fearless) root.requestKeep()
         else if (key === "r" && root.fearless) root.requestRewind()
+        else if (key === "d" && root.fearless && root.status.changes && root.status.changes.length > 0)
+          root.loadPreview(root.previewPath === "" ? root.status.changes[0].path : root.previewPath)
         else if (key === "u" && !root.fearless && root.status.canUndo) root.requestUndo()
       }
 
@@ -575,11 +641,15 @@ Panel {
             Repeater {
               model: root.status.changes || []
 
-              Item {
+              CursorSurface {
                 id: changeRow
                 required property var modelData
                 width: parent.width
                 height: Style.space(28)
+                foreground: root.foreground
+                accent: root.accent
+                current: root.previewPath === String(changeRow.modelData.path || "")
+                hasCursor: changeMouse.containsMouse
 
                 Text {
                   anchors.left: parent.left
@@ -595,12 +665,94 @@ Panel {
                   anchors.left: parent.left
                   anchors.leftMargin: Style.space(84)
                   anchors.right: parent.right
+                  anchors.rightMargin: Style.space(18)
                   anchors.verticalCenter: parent.verticalCenter
                   text: Model.compactPath(changeRow.modelData.path)
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
                   elide: Text.ElideLeft
+                }
+
+                Text {
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: changeRow.current ? "\uf078" : "\uf054"
+                  color: changeRow.current ? root.accent : root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                MouseArea {
+                  id: changeMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.loadPreview(String(changeRow.modelData.path || ""))
+                }
+              }
+            }
+
+            BorderSurface {
+              visible: root.previewPath !== ""
+              width: parent.width
+              implicitHeight: previewColumn.implicitHeight + Style.space(20)
+              radius: Style.cornerRadius
+              color: Style.normalFillFor(root.foreground, root.accent)
+              borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
+
+              Column {
+                id: previewColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.margins: Style.space(10)
+                spacing: Style.space(6)
+
+                Text {
+                  width: parent.width
+                  text: root.previewPath
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  elide: Text.ElideLeft
+                }
+                Text {
+                  visible: root.previewBusy
+                  width: parent.width
+                  text: "Generating checkpoint diff…"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+                Text {
+                  visible: root.previewError !== ""
+                  width: parent.width
+                  text: root.previewError
+                  color: root.urgent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  wrapMode: Text.WordWrap
+                }
+                Text {
+                  visible: root.previewData && !root.previewBusy
+                  width: parent.width
+                  text: root.previewData ? String(root.previewData.text || "") : ""
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WrapAnywhere
+                }
+                Text {
+                  visible: root.previewData && root.previewData.truncated === true
+                  width: parent.width
+                  text: "PREVIEW LIMITED TO 36 LINES"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1
                 }
               }
             }
@@ -658,9 +810,11 @@ Panel {
 
           Text {
             width: parent.width
-            text: root.status.canUndo
-              ? "S start  ·  U undo rewind  ·  Esc close"
-              : "S start  ·  K keep  ·  R rewind  ·  Esc close"
+            text: root.fearless
+              ? "K keep  ·  R rewind  ·  D preview  ·  Esc close"
+              : (root.status.canUndo
+                ? "S start  ·  U undo rewind  ·  Esc close"
+                : "S start  ·  Esc close")
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

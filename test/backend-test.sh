@@ -16,6 +16,7 @@ export OMAREWIND_STATE_HOME="$TEST_ROOT/state"
 export FAKE_PACKAGES_FILE="$TEST_ROOT/packages"
 export FAKE_PLUGINS_FILE="$TEST_ROOT/plugins.json"
 export FAKE_THEME_LOG="$TEST_ROOT/theme.log"
+export FAIL_RSYNC_FILE="$TEST_ROOT/fail-restore-rsync"
 export PATH="$TEST_ROOT/bin:$PATH"
 
 mkdir -p "$HOME/.config/hypr" \
@@ -59,6 +60,16 @@ cat >"$TEST_ROOT/bin/omarchy-notification-send" <<'EOF'
 exit 0
 EOF
 
+cat >"$TEST_ROOT/bin/rsync" <<'EOF'
+#!/usr/bin/env bash
+last=''
+for argument in "$@"; do last="$argument"; done
+if [[ -e "$FAIL_RSYNC_FILE" && "$last" == "$HOME/.config/"* ]]; then
+  exit 42
+fi
+exec /usr/bin/rsync "$@"
+EOF
+
 chmod +x "$TEST_ROOT/bin/"*
 
 assert_json() {
@@ -85,6 +96,23 @@ status="$(LC_ALL=en_US.UTF-8 "$COMMAND" status)"
 assert_json "$status" '.active == true'
 assert_json "$status" '.files.added == 1 and .files.modified == 1 and .files.deleted == 1'
 assert_json "$status" '.packages.added == 1 and .plugins.added == 1 and .totalChanges == 5'
+
+preview="$($COMMAND preview '.config/hypr/bindings.lua')"
+assert_json "$preview" '.kind == "modified" and (.text | contains("-original binding")) and (.text | contains("+changed binding"))'
+preview="$($COMMAND preview '.config/hypr/new.lua')"
+assert_json "$preview" '.kind == "added" and (.text | contains("+new setting"))'
+if "$COMMAND" preview '.config/hypr/not-changed.lua' >/dev/null 2>&1; then
+  printf 'preview unexpectedly accepted a path outside the change set\n' >&2
+  exit 1
+fi
+if "$COMMAND" preview '../../etc/passwd' >/dev/null 2>&1; then
+  printf 'preview unexpectedly accepted a path traversal\n' >&2
+  exit 1
+fi
+printf '\0binary\n' >"$HOME/.config/hypr/binary.lua"
+preview="$($COMMAND preview '.config/hypr/binary.lua')"
+assert_json "$preview" '.kind == "added" and .binary == true'
+rm -- "$HOME/.config/hypr/binary.lua"
 
 if "$COMMAND" rewind >/dev/null 2>&1; then
   printf 'rewind unexpectedly succeeded without --yes\n' >&2
@@ -123,6 +151,15 @@ grep -qx 'must survive' "$TEST_ROOT/outside/sentinel"
 # A damaged checkpoint must fail closed before touching live configuration.
 $COMMAND start 'Integrity test' >/dev/null
 printf 'live work\n' >"$HOME/.config/hypr/bindings.lua"
+mv "$OMAREWIND_STATE_HOME/active/packages.txt" "$TEST_ROOT/packages.good"
+ln -s "$FAKE_PACKAGES_FILE" "$OMAREWIND_STATE_HOME/active/packages.txt"
+if "$COMMAND" rewind --yes >/dev/null 2>&1; then
+  printf 'rewind unexpectedly accepted symlinked checkpoint metadata\n' >&2
+  exit 1
+fi
+grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
+rm -- "$OMAREWIND_STATE_HOME/active/packages.txt"
+mv "$TEST_ROOT/packages.good" "$OMAREWIND_STATE_HOME/active/packages.txt"
 printf 'tampered snapshot\n' >"$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/bindings.lua"
 if "$COMMAND" rewind --yes >/dev/null 2>&1; then
   printf 'rewind unexpectedly accepted a damaged checkpoint\n' >&2
@@ -180,6 +217,33 @@ assert_json "$status" '.active == true and (.label == "Concurrent A" or .label =
 $COMMAND keep --yes >/dev/null
 [[ "$(stat -c '%a' "$OMAREWIND_STATE_HOME")" == "700" ]]
 [[ "$(stat -c '%a' "$OMAREWIND_STATE_HOME/.lock")" == "600" ]]
+
+# A rewind interrupted after its experiment capture resumes from the verified
+# safety copy instead of overwriting it or becoming permanently stuck.
+$COMMAND start 'Interrupted rewind test' >/dev/null
+printf 'interrupted change\n' >"$HOME/.config/hypr/bindings.lua"
+: >"$FAIL_RSYNC_FILE"
+if "$COMMAND" rewind --yes >/dev/null 2>&1; then
+  printf 'rewind unexpectedly survived the forced restore failure\n' >&2
+  exit 1
+fi
+[[ -d "$OMAREWIND_STATE_HOME/active/experiment" ]]
+assert_json "$($COMMAND status)" '.active == true'
+rm -- "$FAIL_RSYNC_FILE"
+status="$($COMMAND rewind --yes)"
+assert_json "$status" '.active == false and .canUndo == true'
+grep -qx 'rescue this experiment' "$HOME/.config/hypr/bindings.lua"
+: >"$FAIL_RSYNC_FILE"
+if "$COMMAND" undo --yes >/dev/null 2>&1; then
+  printf 'undo unexpectedly survived the forced restore failure\n' >&2
+  exit 1
+fi
+latest_history="$(find "$OMAREWIND_STATE_HOME/history" -mindepth 1 -maxdepth 1 -type d -print | sort -r | head -n 1)"
+[[ -d "$latest_history/before-undo" ]]
+rm -- "$FAIL_RSYNC_FILE"
+status="$($COMMAND undo --yes)"
+assert_json "$status" '.active == false and .canUndo == false and .lastSession.outcome == "rewind-undone"'
+grep -qx 'interrupted change' "$HOME/.config/hypr/bindings.lua"
 
 # Metadata cannot turn an archive destination into a path traversal.
 $COMMAND start 'Metadata safety test' >/dev/null

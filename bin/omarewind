@@ -36,6 +36,7 @@ Commands:
   start [label]    Start Fearless Mode and create a configuration checkpoint
   status           Print current state and changes as JSON
   changes          Alias for status
+  preview <path>   Show a bounded diff for one changed configuration file
   keep --yes       Keep the experiment and archive the checkpoint
   rewind --yes     Restore checkpointed configuration and archive the experiment
   undo --yes       Undo the most recent configuration rewind
@@ -204,6 +205,7 @@ copy_target_to_snapshot() {
 
 record_targets() {
   local checkpoint="$1" relative source kind
+  mkdir -p -- "$checkpoint/snapshot"
   : >"$checkpoint/targets.tsv"
   for relative in "${TRACKED_TARGETS[@]}"; do
     source="$HOME/$relative"
@@ -221,8 +223,13 @@ verify_checkpoint() (
   local checkpoint="$1" relative kind extra signature actual source expected verify_manifest
   local target_index=0
 
-  [[ -d "$checkpoint" ]] || fail "checkpoint directory is missing"
-  [[ -f "$checkpoint/meta.json" && -f "$checkpoint/manifest.tsv" && -f "$checkpoint/targets.tsv" ]] \
+  [[ -d "$checkpoint" && ! -L "$checkpoint" ]] || fail "checkpoint directory is missing or unsafe"
+  [[ -d "$checkpoint/snapshot" && ! -L "$checkpoint/snapshot" ]] || fail "checkpoint snapshot directory is missing or unsafe"
+  [[ -f "$checkpoint/meta.json" && ! -L "$checkpoint/meta.json" \
+    && -f "$checkpoint/manifest.tsv" && ! -L "$checkpoint/manifest.tsv" \
+    && -f "$checkpoint/targets.tsv" && ! -L "$checkpoint/targets.tsv" \
+    && -f "$checkpoint/packages.txt" && ! -L "$checkpoint/packages.txt" \
+    && -f "$checkpoint/plugins.txt" && ! -L "$checkpoint/plugins.txt" ]] \
     || fail "checkpoint metadata is incomplete"
   jq -e 'type == "object" and (.version == 1) and (.id | type == "string" and test("^[0-9]{8}-[0-9]{6}[A-Za-z0-9._-]*$"))' "$checkpoint/meta.json" >/dev/null \
     || fail "checkpoint metadata is invalid"
@@ -298,6 +305,73 @@ write_list_diff() {
   comm -13 "$baseline" "$current" >"$added"
   comm -23 "$baseline" "$current" >"$removed"
 }
+
+preview_materialize() {
+  local source="$1" output="$2"
+  if [[ -L "$source" ]]; then
+    printf 'symlink -> %s\n' "$(readlink -- "$source")" >"$output"
+  elif [[ -f "$source" ]]; then
+    cp -- "$source" "$output"
+  else
+    : >"$output"
+  fi
+}
+
+preview_is_binary_or_large() {
+  local source="$1" size
+  [[ -e "$source" || -L "$source" ]] || return 1
+  [[ -L "$source" ]] && return 1
+  size="$(stat -c '%s' -- "$source")"
+  ((size > 262144)) && return 0
+  [[ ! -s "$source" ]] && return 1
+  ! grep -Iq '' -- "$source"
+}
+
+command_preview() (
+  local relative="${1:-}" work kind='' before after before_label after_label diff_code=0
+  local binary=false truncated=false total_lines preview
+  [[ -d "$ACTIVE_DIR" ]] || fail "Fearless Mode is not active"
+  [[ -n "$relative" ]] || fail "preview requires a changed configuration path"
+  validate_relative_path "$relative"
+  verify_checkpoint "$ACTIVE_DIR"
+
+  work="$(mktemp -d "$STATE_ROOT/.status.XXXXXX")"
+  trap 'rm -rf -- "$work"' EXIT INT TERM
+  write_diff_files "$work"
+  if grep -Fqx -- "$relative" "$work/files-added"; then kind='added'
+  elif grep -Fqx -- "$relative" "$work/files-modified"; then kind='modified'
+  elif grep -Fqx -- "$relative" "$work/files-deleted"; then kind='deleted'
+  else fail "preview path is not part of the active change set"
+  fi
+
+  before="$ACTIVE_DIR/snapshot/$relative"
+  after="$HOME/$relative"
+  if preview_is_binary_or_large "$before" || preview_is_binary_or_large "$after"; then
+    binary=true
+    preview="Binary or larger than 256 KiB. OmaRewind will restore it, but does not render its contents."
+  else
+    preview_materialize "$before" "$work/before"
+    preview_materialize "$after" "$work/after"
+    before_label="checkpoint/$relative"
+    after_label="current/$relative"
+    [[ "$kind" == 'added' ]] && before_label='/dev/null'
+    [[ "$kind" == 'deleted' ]] && after_label='/dev/null'
+    diff -u --label "$before_label" --label "$after_label" "$work/before" "$work/after" >"$work/diff" || diff_code=$?
+    ((diff_code <= 1)) || fail "could not generate preview"
+    total_lines="$(wc -l <"$work/diff")"
+    ((total_lines > 36)) && truncated=true
+    preview="$(head -n 36 "$work/diff")"
+    [[ -n "$preview" ]] || preview="No textual difference is available."
+  fi
+
+  jq -n \
+    --arg path "$relative" \
+    --arg kind "$kind" \
+    --arg text "$preview" \
+    --argjson binary "$binary" \
+    --argjson truncated "$truncated" \
+    '{path: $path, kind: $kind, binary: $binary, truncated: $truncated, text: $text}'
+)
 
 command_start() (
   local label="${1:-Untitled experiment}" checkpoint now epoch id theme
@@ -491,7 +565,7 @@ restore_target() {
 
 capture_current_checkpoint() (
   local destination="$1" id="$2" label="$3" temp now epoch theme
-  [[ ! -e "$destination" ]] || fail "safety checkpoint already exists"
+  [[ ! -e "$destination" && ! -L "$destination" ]] || fail "safety checkpoint already exists or is unsafe"
   temp="$(mktemp -d "${destination}.tmp.XXXXXX")"
   trap 'rm -rf -- "$temp"' EXIT INT TERM
   epoch="$(date +%s)"
@@ -549,7 +623,13 @@ command_rewind() {
   require_command rsync
   verify_checkpoint "$ACTIVE_DIR"
   id="$(jq -r '.id' "$ACTIVE_DIR/meta.json")"
-  capture_current_checkpoint "$ACTIVE_DIR/experiment" "$id-experiment" "Experiment before rewind"
+  [[ ! -L "$ACTIVE_DIR/experiment" ]] || fail "experiment safety checkpoint is unsafe"
+  if [[ -d "$ACTIVE_DIR/experiment" ]]; then
+    verify_checkpoint "$ACTIVE_DIR/experiment"
+  else
+    find "$ACTIVE_DIR" -mindepth 1 -maxdepth 1 -type d -name 'experiment.tmp.*' -exec rm -rf -- {} +
+    capture_current_checkpoint "$ACTIVE_DIR/experiment" "$id-experiment" "Experiment before rewind"
+  fi
   restore_checkpoint_theme "$ACTIVE_DIR"
   restore_checkpoint "$ACTIVE_DIR"
   reload_desktop_configuration
@@ -573,7 +653,13 @@ command_undo() {
   verify_checkpoint "$latest"
   verify_checkpoint "$latest/experiment"
   id="$(jq -r '.id' "$latest/meta.json")"
-  capture_current_checkpoint "$latest/before-undo" "$id-before-undo" "Configuration before undo"
+  [[ ! -L "$latest/before-undo" ]] || fail "undo safety checkpoint is unsafe"
+  if [[ -d "$latest/before-undo" ]]; then
+    verify_checkpoint "$latest/before-undo"
+  else
+    find "$latest" -mindepth 1 -maxdepth 1 -type d -name 'before-undo.tmp.*' -exec rm -rf -- {} +
+    capture_current_checkpoint "$latest/before-undo" "$id-before-undo" "Configuration before undo"
+  fi
   restore_checkpoint_theme "$latest/experiment"
   restore_checkpoint "$latest/experiment"
   reload_desktop_configuration
@@ -601,7 +687,7 @@ command_history() {
 
 command_doctor() {
   local missing=() command active=false integrity='null' state_bytes state_mode lock_mode stale history
-  for command in jq rsync sha256sum find sort cut comm join awk cmp flock realpath stat du; do
+  for command in jq rsync sha256sum find sort cut comm join awk cmp diff grep head flock realpath stat du; do
     command -v "$command" >/dev/null 2>&1 || missing+=("$command")
   done
   state_bytes="$(du -sb -- "$STATE_ROOT" | cut -f1)"
@@ -642,6 +728,7 @@ main() {
   case "$command" in
     start) with_state_lock -x command_start "$@" ;;
     status|changes) with_state_lock -s command_status ;;
+    preview) with_state_lock -s command_preview "$@" ;;
     keep) with_state_lock -x command_keep "$@" ;;
     rewind) with_state_lock -x command_rewind "$@" ;;
     undo) with_state_lock -x command_undo "$@" ;;

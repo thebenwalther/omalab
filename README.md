@@ -39,7 +39,8 @@ FEARLESS · 7
 ```
 
 The panel separates file, package, and plugin changes, shows recent modified
-paths, and offers two intentional exits:
+paths, and opens a bounded unified diff when a path is clicked. It offers two
+intentional exits:
 
 - **Keep Changes** archives the checkpoint and leaves the experiment in place.
 - **Rewind Configs** restores the checkpoint and archives a record of what was
@@ -83,6 +84,7 @@ The QML interface uses the same auditable command available to users:
 ```bash
 bin/omarewind start "Trying a new rice"
 bin/omarewind status
+bin/omarewind preview ".config/hypr/bindings.lua"
 bin/omarewind keep --yes
 bin/omarewind rewind --yes
 bin/omarewind undo --yes
@@ -150,7 +152,7 @@ desktop configuration.
 ## Roadmap
 
 - A full visual experiment timeline with search and filtering.
-- Selective per-file rewind with a readable diff preview.
+- Selective per-file rewind directly from the diff preview.
 - Package reconciliation plans that open in a terminal for explicit review.
 - Snapper checkpoint detection and pairing without maintaining a privileged
   daemon.

@@ -56,6 +56,10 @@ Package differences are reported but never reconciled automatically. This
 avoids unreviewed package installation or removal and keeps the restore path
 unprivileged.
 
+Preview requests are restricted to the active computed change set. Text output
+is bounded, while binary files and files larger than 256 KiB are identified but
+never rendered into the shell panel.
+
 ## Reporting a vulnerability
 
 Until the public repository is published, report security issues privately to

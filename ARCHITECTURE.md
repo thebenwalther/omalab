@@ -19,6 +19,10 @@ thirty seconds while idle. On a representative 124-file configuration, a warm
 status scan completes in roughly a hundredth of a second; scans never retain a
 background watcher or daemon.
 
+Diff previews are generated only on demand. The backend accepts only a path in
+the active computed change set, refuses traversal, does not render binary files
+or files over 256 KiB, and limits output to 36 lines before returning JSON.
+
 ## State layout
 
 ```text
