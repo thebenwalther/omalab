@@ -113,6 +113,10 @@ printf '\0binary\n' >"$HOME/.config/hypr/binary.lua"
 preview="$($COMMAND preview '.config/hypr/binary.lua')"
 assert_json "$preview" '.kind == "added" and .binary == true'
 rm -- "$HOME/.config/hypr/binary.lua"
+printf '\377invalid utf8\n' >"$HOME/.config/hypr/non-utf8.lua"
+preview="$($COMMAND preview '.config/hypr/non-utf8.lua')"
+assert_json "$preview" '.kind == "added" and .binary == true'
+rm -- "$HOME/.config/hypr/non-utf8.lua"
 awk 'BEGIN { for (i = 0; i < 20000; i++) printf "x"; printf "\n" }' >"$HOME/.config/hypr/long-line.lua"
 preview="$($COMMAND preview '.config/hypr/long-line.lua')"
 assert_json "$preview" '.kind == "added" and .truncated == true and (.text | length) <= 16384'
