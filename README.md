@@ -65,6 +65,9 @@ that because it captures the experiment into the owner-only local
 state directory before restoring anything. Undo also uses a two-step
 confirmation and preserves the post-rewind state before it acts.
 
+The idle panel keeps the three newest experiments visible as a compact timeline
+of what was kept, rewound, or restored. The CLI retains the complete history.
+
 ## Development install
 
 The repository root is the plugin root. Link it into the user plugin directory
@@ -166,7 +169,7 @@ The privacy-safe prize recording sequence is documented in
 
 ## Roadmap
 
-- A full visual experiment timeline with search and filtering.
+- Search and filtering across the complete experiment timeline.
 - Selective per-file rewind directly from the diff preview.
 - Package reconciliation plans that open in a terminal for explicit review.
 - Snapper checkpoint detection and pairing without maintaining a privileged

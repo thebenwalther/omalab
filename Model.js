@@ -7,11 +7,19 @@ function emptyStatus() {
     historyCount: 0,
     canUndo: false,
     lastSession: null,
+    recentHistory: [],
     files: { added: 0, modified: 0, deleted: 0, total: 0 },
     packages: { added: 0, removed: 0, total: 0 },
     plugins: { added: 0, removed: 0, total: 0 },
     changes: []
   }
+}
+
+function recentSessions(status, limit) {
+  if (!status) return []
+  var sessions = status.recentHistory || []
+  if (sessions.length === 0 && status.lastSession) sessions = [status.lastSession]
+  return sessions.slice(0, Math.max(0, Number(limit) || 0))
 }
 
 function parseStatus(raw) {

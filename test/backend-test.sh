@@ -145,7 +145,7 @@ if "$COMMAND" rewind >/dev/null 2>&1; then
 fi
 
 status="$($COMMAND rewind --yes)"
-assert_json "$status" '.active == false and .historyCount == 1 and .canUndo == true'
+assert_json "$status" '.active == false and .historyCount == 1 and .canUndo == true and (.recentHistory | length) == 1 and .recentHistory[0].outcome == "rewound"'
 grep -qx 'original binding' "$HOME/.config/hypr/bindings.lua"
 grep -qx 'original terminal' "$HOME/.config/ghostty/config"
 grep -qx 'plugin version two' "$HOME/.config/omarchy/plugins/com.omarchy.omarewind/BarWidget.qml"
@@ -323,6 +323,9 @@ assert_json "$status" '([.changes[].path] | index(".config/hypr/back\\slash.lua"
 $COMMAND rewind --yes >/dev/null
 grep -qx 'space original' "$HOME/.config/hypr/space name.lua"
 grep -qx 'slash original' "$HOME/.config/hypr/back\\slash.lua"
+
+status="$($COMMAND status)"
+assert_json "$status" '(.recentHistory | length) == 5 and .recentHistory[0].label == "Filename compatibility test"'
 
 # Unsupported path separators fail atomically rather than producing an
 # ambiguous TSV checkpoint that could restore the wrong file.

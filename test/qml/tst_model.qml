@@ -11,6 +11,15 @@ TestCase {
     compare(status.totalChanges, 0)
     compare(status.canUndo, false)
     compare(status.changes.length, 0)
+    compare(status.recentHistory.length, 0)
+  }
+
+  function test_recentSessions() {
+    var first = {label: "Newest"}
+    var second = {label: "Older"}
+    compare(Model.recentSessions({recentHistory: [first, second]}, 1)[0].label, "Newest")
+    compare(Model.recentSessions({recentHistory: [], lastSession: second}, 3)[0].label, "Older")
+    compare(Model.recentSessions(null, 3).length, 0)
   }
 
   function test_parseStatusFallsBack() {

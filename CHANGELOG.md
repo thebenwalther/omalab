@@ -4,6 +4,8 @@
 
 - Preserve every experiment before rewind and support Undo Last Rewind.
 - Add user-named experiments and recent-history presentation.
+- Show the three newest experiments in the idle panel instead of hiding the
+  archive behind a single last-session card.
 - Add bounded, path-validated unified diff previews for changed files.
 - Make history reads corruption-tolerant and audit every archived safety layer
   through `doctor`.

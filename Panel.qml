@@ -449,24 +449,29 @@ Panel {
           }
 
           Column {
-            visible: !root.fearless && root.status.lastSession
+            visible: !root.fearless && Model.recentSessions(root.status, 3).length > 0
             width: parent.width
             spacing: Style.space(8)
 
             PanelSeparator { foreground: root.foreground }
             PanelSectionHeader {
-              text: "LAST EXPERIMENT"
+              text: "RECENT EXPERIMENTS"
               foreground: root.foreground
               fontFamily: root.fontFamily
             }
 
-            HistoryCard {
-              width: parent.width
-              session: root.status.lastSession
-              foreground: root.foreground
-              accent: root.accent
-              dim: root.dim
-              fontFamily: root.fontFamily
+            Repeater {
+              model: Model.recentSessions(root.status, 3)
+
+              HistoryCard {
+                required property var modelData
+                width: parent.width
+                session: modelData
+                foreground: root.foreground
+                accent: root.accent
+                dim: root.dim
+                fontFamily: root.fontFamily
+              }
             }
 
             Text {

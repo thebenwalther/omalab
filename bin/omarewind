@@ -442,12 +442,20 @@ command_start() (
 )
 
 command_status() (
-  local history work meta now epoch elapsed latest last_session='null' can_undo=false
+  local history=0 work meta now epoch elapsed latest='' item recent_lines=''
+  local recent_history='[]' last_session='null' can_undo=false
   ensure_state_dirs
-  history="$(history_count | tr -d ' ')"
-  latest="$(latest_history_dir || true)"
+  while IFS= read -r item; do
+    valid_history_meta "$item/meta.json" || continue
+    history=$((history + 1))
+    [[ -n "$latest" ]] || latest="$item"
+    if ((history <= 5)); then
+      recent_lines+="$(jq -c '.' "$item/meta.json")"$'\n'
+    fi
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort -r)
+  recent_history="$(jq -s '.' <<<"$recent_lines")"
+  last_session="$(jq -c '.[0] // null' <<<"$recent_history")"
   if [[ -n "$latest" ]]; then
-    last_session="$(jq -c '.' "$latest/meta.json")"
     if [[ "$(jq -r '.outcome // ""' "$latest/meta.json")" == "rewound" && -d "$latest/experiment" ]]; then
       can_undo=true
     fi
@@ -457,8 +465,9 @@ command_status() (
     jq -n \
       --argjson historyCount "${history:-0}" \
       --argjson lastSession "$last_session" \
+      --argjson recentHistory "$recent_history" \
       --argjson canUndo "$can_undo" \
-      '{active: false, totalChanges: 0, historyCount: $historyCount, canUndo: $canUndo, lastSession: $lastSession, files: {added: 0, modified: 0, deleted: 0, total: 0}, packages: {added: 0, removed: 0, total: 0}, plugins: {added: 0, removed: 0, total: 0}, changes: []}'
+      '{active: false, totalChanges: 0, historyCount: $historyCount, canUndo: $canUndo, lastSession: $lastSession, recentHistory: $recentHistory, files: {added: 0, modified: 0, deleted: 0, total: 0}, packages: {added: 0, removed: 0, total: 0}, plugins: {added: 0, removed: 0, total: 0}, changes: []}'
     return 0
   fi
 
@@ -483,6 +492,7 @@ command_status() (
     --argjson elapsedSeconds "$elapsed" \
     --argjson historyCount "${history:-0}" \
     --argjson lastSession "$last_session" \
+    --argjson recentHistory "$recent_history" \
     --argjson filesAdded "$(wc -l <"$work/files-added")" \
     --argjson filesModified "$(wc -l <"$work/files-modified")" \
     --argjson filesDeleted "$(wc -l <"$work/files-deleted")" \
@@ -513,6 +523,7 @@ command_status() (
         historyCount: $historyCount,
         canUndo: false,
         lastSession: $lastSession,
+        recentHistory: $recentHistory,
         files: {added: $filesAdded, modified: $filesModified, deleted: $filesDeleted, total: $fileTotal},
         packages: {added: $packagesAdded, removed: $packagesRemoved, total: $packageTotal, addedNames: $addedPackages, removedNames: $removedPackages},
         plugins: {added: $pluginsAdded, removed: $pluginsRemoved, total: $pluginTotal, addedNames: $addedPlugins, removedNames: $removedPlugins},
