@@ -34,9 +34,10 @@ Panel {
     : (root.hostWidget ? root.hostWidget.commandPath : "")
 
   readonly property bool fearless: status && status.active === true
-  readonly property color foreground: root.bar ? root.bar.foreground : Color.foreground
-  readonly property color urgent: root.bar ? root.bar.urgent : Color.urgent
+  readonly property color foreground: Color.popups.text
+  readonly property color urgent: Color.urgent
   readonly property color accent: Color.accent
+  readonly property color signalColor: root.rewindArmed || root.undoArmed ? root.urgent : root.accent
   readonly property color dim: Qt.darker(foreground, 1.5)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
 
@@ -291,34 +292,44 @@ Panel {
           width: parent.width
           spacing: Style.spacing.panelGap
 
-          PanelHero {
+          BorderSurface {
             width: parent.width
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            title: root.fearless ? String(root.status.label || "Fearless Mode") : "Ready to experiment"
-            meta: root.fearless
-              ? "FEARLESS MODE · " + Model.formatElapsed(root.status.elapsedSeconds) + " · " + String(root.status.theme || "CURRENT THEME")
-              : "OMA REWIND IS STANDING BY"
-            detail: root.fearless ? Model.plural(root.status.totalChanges, "CHANGE") : "SAFE"
-            iconComponent: Component {
-              Item {
-                implicitWidth: Style.space(48)
-                implicitHeight: Style.space(48)
+            implicitHeight: hero.implicitHeight + Style.space(24)
+            radius: Style.cornerRadius
+            color: Util.alpha(root.signalColor, root.fearless ? 0.13 : 0.08)
+            borderSpec: Border.flat(Util.alpha(root.signalColor, 0.72), Math.max(1, Style.normalBorderWidth))
 
-                BorderSurface {
-                  anchors.fill: parent
-                  radius: width / 2
-                  color: root.fearless
-                    ? Style.selectedFillFor(root.foreground, root.accent)
-                    : Style.normalFillFor(root.foreground, root.accent)
-                  borderSpec: Border.controlSpec(root.fearless ? "selected" : "normal", root.foreground, root.accent)
+            Behavior on color { ColorAnimation { duration: 160 } }
 
-                  Text {
-                    anchors.centerIn: parent
-                    text: "\uf0c3"
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.display
+            PanelHero {
+              id: hero
+              anchors.fill: parent
+              anchors.margins: Style.space(12)
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              title: root.fearless ? String(root.status.label || "Fearless Mode") : "Ready to experiment"
+              meta: root.fearless
+                ? "FEARLESS MODE · " + Model.formatElapsed(root.status.elapsedSeconds) + " · " + String(root.status.theme || "CURRENT THEME")
+                : "OMA REWIND IS STANDING BY"
+              detail: root.fearless ? Model.plural(root.status.totalChanges, "CHANGE") : "SAFE"
+              iconComponent: Component {
+                Item {
+                  implicitWidth: Style.space(48)
+                  implicitHeight: Style.space(48)
+
+                  BorderSurface {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: Util.alpha(root.signalColor, 0.18)
+                    borderSpec: Border.flat(root.signalColor, Math.max(1, Style.normalBorderWidth))
+
+                    Text {
+                      anchors.centerIn: parent
+                      text: "\uf0c3"
+                      color: root.signalColor
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.display
+                    }
                   }
                 }
               }
@@ -385,7 +396,8 @@ Panel {
               text: root.keepArmed ? "Click again to keep" : (root.busy && root.activeAction === "keep" ? "Keeping…" : "Keep Changes")
               iconText: "\uf00c"
               bordered: true
-              foreground: root.foreground
+              foreground: root.accent
+              background: Util.alpha(root.accent, 0.07)
               accent: root.accent
               enabled: !root.busy && !root.backendError
               onClicked: root.requestKeep()
@@ -455,7 +467,8 @@ Panel {
             iconText: "\uf0c3"
             selected: true
             bordered: true
-            foreground: root.foreground
+            foreground: root.accent
+            background: Util.alpha(root.accent, 0.08)
             accent: root.accent
             enabled: !root.busy && !root.backendError && root.effectiveCommandPath !== ""
             onClicked: root.beginAction("start")
@@ -482,6 +495,7 @@ Panel {
                 session: modelData
                 foreground: root.foreground
                 accent: root.accent
+                urgent: root.urgent
                 dim: root.dim
                 fontFamily: root.fontFamily
               }
@@ -504,7 +518,8 @@ Panel {
               iconText: "\uf2ea"
               bordered: true
               selected: root.undoArmed
-              foreground: root.undoArmed ? root.urgent : root.foreground
+              foreground: root.undoArmed ? root.urgent : root.accent
+              background: root.undoArmed ? Util.alpha(root.urgent, 0.08) : Util.alpha(root.accent, 0.07)
               accent: root.undoArmed ? root.urgent : root.accent
               enabled: !root.busy && !root.backendError
               onClicked: root.requestUndo()

@@ -11,13 +11,25 @@ BorderSurface {
   required property var session
   property color foreground: Color.foreground
   property color accent: Color.accent
+  property color urgent: Color.urgent
   property color dim: Qt.darker(foreground, 1.5)
   property string fontFamily: Style.font.family
+  readonly property string outcome: String(root.session ? root.session.outcome || "" : "")
+  readonly property color outcomeColor: root.outcome === "rewound" ? root.urgent : root.accent
 
   height: Style.space(66)
   radius: Style.cornerRadius
   color: Style.normalFillFor(root.foreground, root.accent)
   borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
+
+  Rectangle {
+    anchors.left: parent.left
+    anchors.verticalCenter: parent.verticalCenter
+    width: Math.max(2, Style.space(3))
+    height: parent.height - Style.space(20)
+    radius: width / 2
+    color: root.outcomeColor
+  }
 
   Column {
     anchors.left: parent.left
@@ -38,7 +50,7 @@ BorderSurface {
     Text {
       width: parent.width
       text: Model.lastSessionMeta(root.session)
-      color: root.dim
+      color: root.outcomeColor
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
       font.bold: true

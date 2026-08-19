@@ -16,8 +16,8 @@ wild theme, replace your keybindings, or try an unfamiliar plugin and think:
 [![Watch the one-minute OmaRewind demo](docs/demo/thumbnail.png)](docs/demo/omarewind-prize-demo.mp4)
 
 See the real checkpoint, theme experiment, configuration diff, rewind, and
-reversible undo in the [one-minute demo](docs/demo/omarewind-prize-demo.mp4),
-or watch the [14-second promo loop](docs/demo/omarewind-demo-loop.mp4).
+reversible undo in the [narrated one-minute demo](docs/demo/omarewind-prize-demo.mp4),
+or watch the [soundtracked 14-second promo loop](docs/demo/omarewind-demo-loop.mp4).
 
 ## What it does
 

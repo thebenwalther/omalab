@@ -191,7 +191,7 @@ BarWidget {
       : (root.fearless ? "FEARLESS · " + root.changeCount : "\uf1da")
     fontSize: root.fearless && !root.vertical ? Style.font.caption : Style.font.icon
     active: root.fearless
-    activeColor: root.bar ? root.bar.barForeground : Color.foreground
+    activeColor: Color.accent
     tooltipText: root.statusError ? "OmaRewind · Checkpoint needs attention" : Model.tooltip(root.status)
     horizontalMargin: root.fearless ? 10 : 8.5
 

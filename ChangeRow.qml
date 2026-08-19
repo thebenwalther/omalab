@@ -25,7 +25,9 @@ CursorSurface {
     anchors.verticalCenter: parent.verticalCenter
     width: Style.space(78)
     text: Model.changeVerb(root.change.kind)
-    color: root.change.kind === "deleted" ? root.urgent : root.dim
+    color: root.change.kind === "deleted"
+      ? root.urgent
+      : (root.change.kind === "added" ? root.accent : root.dim)
     font.family: root.fontFamily
     font.pixelSize: Style.font.caption
     font.bold: true

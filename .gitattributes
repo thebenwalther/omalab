@@ -1,0 +1,2 @@
+# Keep repository-hosted promo videos out of installable git archives.
+docs/demo/*.mp4 export-ignore
