@@ -11,6 +11,14 @@ OmaRewind is an Omarchy 4 bar plugin built for the moment before you install a
 wild theme, replace your keybindings, or try an unfamiliar plugin and think:
 *I hope I can get back from this.*
 
+## Watch it work
+
+[![Watch the one-minute OmaRewind demo](docs/demo/thumbnail.png)](docs/demo/omarewind-prize-demo.mp4)
+
+See the real checkpoint, theme experiment, configuration diff, rewind, and
+reversible undo in the [one-minute demo](docs/demo/omarewind-prize-demo.mp4),
+or watch the [14-second promo loop](docs/demo/omarewind-demo-loop.mp4).
+
 ## What it does
 
 - Creates a local checkpoint of Omarchy, Hyprland, supported terminal, and
