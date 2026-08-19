@@ -200,7 +200,7 @@ align_live_config_root() {
 
   if [[ ! -f "$record" || -L "$record" ]]; then
     if [[ -L "$path" ]]; then
-      fail "~/.config is a symlink and this checkpoint does not record its original location. Restore the original ~/.config directory and retry"
+      fail "$path is a symlink and this checkpoint does not record its original location. Restore the original configuration root and retry"
     fi
     resolved="$(realpath -m -- "$path")"
     [[ "$resolved" == /* && "$resolved" != "/" ]] || fail "refusing unsafe ~/.config path"
@@ -224,9 +224,9 @@ align_live_config_root() {
       if [[ -L "$path" ]]; then
         rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
       elif [[ -f "$path" ]]; then
-        fail "~/.config is a file but the checkpoint expects a directory. Move it aside and retry"
+        fail "$path is a file but the checkpoint expects a directory. Move it aside and retry"
       elif [[ -d "$path" ]]; then
-        fail "~/.config resolved to a different directory than the checkpoint ($resolved). Move it back and retry"
+        fail "$path resolved to a different directory than the checkpoint ($resolved). Move it back and retry"
       fi
       mkdir -p -- "$path" || fail "could not recreate ~/.config"
       ;;
@@ -236,9 +236,9 @@ align_live_config_root() {
       if [[ -L "$path" ]]; then
         rm -f -- "$path" || fail "could not replace the experimental ~/.config symlink"
       elif [[ -d "$path" ]]; then
-        fail "~/.config is a directory but the checkpoint expects a symlink to $target. Move the directory aside and retry"
+        fail "$path is a directory but the checkpoint expects a symlink to $target. Move the directory aside and retry"
       elif [[ -e "$path" ]]; then
-        fail "~/.config is not a symlink but the checkpoint expects a symlink to $target. Move it aside and retry"
+        fail "$path is not a symlink but the checkpoint expects a symlink to $target. Move it aside and retry"
       fi
       mkdir -p -- "$(dirname -- "$path")"
       ln -s -- "$target" "$path" || fail "could not restore the checkpointed ~/.config symlink"
@@ -247,14 +247,14 @@ align_live_config_root() {
       if [[ -L "$path" ]]; then
         rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
       elif [[ -e "$path" ]]; then
-        fail "~/.config exists but was missing at checkpoint time. Move it aside and retry"
+        fail "$path exists but was missing at checkpoint time. Move it aside and retry"
       fi
       ;;
     file)
       if [[ -L "$path" ]]; then
         rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
       elif [[ -d "$path" ]]; then
-        fail "~/.config is a directory but the checkpoint expects a file. Move it aside and retry"
+        fail "$path is a directory but the checkpoint expects a file. Move it aside and retry"
       fi
       ;;
   esac
