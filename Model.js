@@ -22,14 +22,18 @@ function recentSessions(status, limit) {
   return sessions.slice(0, Math.max(0, Number(limit) || 0))
 }
 
+function isStatus(value) {
+  return !!(value && typeof value === "object" && !Array.isArray(value) && typeof value.active === "boolean")
+}
+
 function parseStatus(raw) {
   var text = String(raw || "").trim()
-  if (text === "") return emptyStatus()
+  if (text === "") return null
   try {
     var value = JSON.parse(text)
-    return value && typeof value === "object" ? value : emptyStatus()
+    return isStatus(value) ? value : null
   } catch (error) {
-    return emptyStatus()
+    return null
   }
 }
 

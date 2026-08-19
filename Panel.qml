@@ -176,6 +176,7 @@ Panel {
   function adoptActionOutput(raw) {
     if (String(raw || "").trim() === "") return
     var next = Model.parseStatus(raw)
+    if (!next) return
     if (hostWidget) hostWidget.adoptStatus(next)
     status = next
   }
@@ -610,14 +611,14 @@ Panel {
 
             PanelSeparator { foreground: root.foreground }
             PanelSectionHeader {
-              text: "RECENT CONFIGURATION CHANGES"
+              text: "CONFIGURATION CHANGES"
               foreground: root.foreground
               fontFamily: root.fontFamily
             }
 
             Text {
               width: parent.width
-              text: "Click a file to preview its diff. Rewind Configs above restores every listed file."
+              text: "Click a file to preview its diff. Rewind Configs restores the entire checkpoint, including files not listed here."
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall

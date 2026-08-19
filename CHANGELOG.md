@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.3
+
+- Record the original `~/.config` root and safely realign it before restore so
+  a replaced ancestor symlink cannot retarget `rsync --delete` or `rm -rf`.
+  Existing checkpoint-time `.config` symlinks are preserved, while a
+  replacement real directory fails closed instead of being deleted wholesale.
+- Reject FIFOs, devices, and unexpected empty directories in snapshot verify.
+- Fail closed when configuration inventory cannot be read.
+- Keep last-good UI state when status JSON is malformed.
+- Reset the Fearless badge opacity after the idle pulse stops.
+- Describe rewind as restoring the entire checkpoint, not only listed rows.
+
 ## 0.3.2
 
 - Anchor the panel to its bar icon so OmaRewind opens consistently with other

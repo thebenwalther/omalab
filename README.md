@@ -58,11 +58,11 @@ intentional exits:
 - **Rewind Configs** restores the checkpoint and archives a record of what was
   rewound.
 
-Changed files appear as clickable rows beneath **Recent Configuration Changes**.
-Click a row to inspect its diff; **Rewind Configs** at the top restores every
-listed configuration file. If the panel shows `0 changes`, there is nothing to
-rewind yet—make a theme, bar, keybinding, or terminal change and wait a few
-seconds for the live scan.
+Changed files appear as clickable rows beneath **Configuration Changes**.
+Click a row to inspect its diff; **Rewind Configs** restores the entire
+checkpoint, including files not shown in the panel. If the panel shows
+`0 changes`, there is nothing to rewind yet—make a theme, bar, keybinding, or
+terminal change and wait a few seconds for the live scan.
 
 Both actions require a second click within five seconds. The same flow is fully
 keyboard accessible with `S`, `K`, `R`, `U`, and `Esc`.
@@ -161,6 +161,10 @@ scope. Root snapshots are delegated to Omarchy's existing Snapper integration.
 - Checkpoint files are integrity-checked before any restore begins.
 - A tracked directory replaced by a symlink is unlinked before restore, so
   `rsync --delete` cannot follow it outside the configuration tree.
+- Checkpoints record the original `~/.config` root (directory or symlink).
+  Restore safely realigns a swapped symlink or fails closed when doing so could
+  discard untracked files, so a relocated `~/.config` cannot retarget deletion
+  into another tree.
 - Shared/exclusive file locks serialize status scans and destructive actions.
 - Failed scans clean their temporary state and never replace the last-good UI
   state with a false “inactive” result.

@@ -33,6 +33,8 @@ returning JSON.
 ├── .lock
 ├── active/
 │   ├── meta.json
+│   ├── config-root.tsv
+│   ├── directories.tsv
 │   ├── targets.tsv
 │   ├── manifest.tsv
 │   ├── packages.txt
@@ -52,7 +54,8 @@ directories from older or interrupted versions.
 
 ```text
 confirm → exclusive lock → verify baseline → capture experiment →
-verify experiment → restore theme → restore allowlisted targets →
+verify experiment → align ~/.config to the checkpointed root →
+restore theme → restore allowlisted targets →
 reload Hyprland/shell → archive → publish inactive JSON
 ```
 

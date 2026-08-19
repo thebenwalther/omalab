@@ -8,7 +8,7 @@ export LC_ALL=C
 umask 077
 
 readonly PLUGIN_ID="com.omarchy.omarewind"
-readonly VERSION="0.3.2"
+readonly VERSION="0.3.3"
 readonly STATE_ROOT="${OMAREWIND_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarewind}"
 readonly ACTIVE_DIR="$STATE_ROOT/active"
 readonly HISTORY_DIR="$STATE_ROOT/history"
@@ -133,6 +133,153 @@ validate_relative_path() {
   [[ "$relative" != */../* && "$relative" != ../* && "$relative" != */.. ]] || fail "checkpoint contains an unsafe path: $relative"
 }
 
+describe_config_root() {
+  local path="$HOME/.config" kind resolved target=""
+  if [[ -L "$path" ]]; then
+    kind="link"
+    resolved="$(realpath -m -- "$path")"
+    target="$(readlink -- "$path")"
+  elif [[ -d "$path" ]]; then
+    kind="dir"
+    resolved="$(realpath -m -- "$path")"
+  elif [[ -e "$path" ]]; then
+    kind="file"
+    resolved="$(realpath -m -- "$path")"
+  else
+    kind="missing"
+    resolved="$(realpath -m -- "$path")"
+  fi
+  printf '%s\t%s\t%s\n' "$kind" "$resolved" "$target"
+}
+
+validate_config_root_record() {
+  local kind="$1" resolved="$2" target="$3" extra="${4:-}"
+  [[ -z "$extra" ]] || fail "checkpoint config root metadata is malformed"
+  case "$kind" in
+    dir|file|missing)
+      [[ -n "$resolved" && -z "$target" ]] || fail "checkpoint config root metadata is malformed"
+      ;;
+    link)
+      [[ -n "$resolved" && -n "$target" ]] || fail "checkpoint config root metadata is malformed"
+      [[ "$target" != *$'\t'* && "$target" != *$'\n'* ]] \
+        || fail "tabs and newlines in ~/.config symlink target are not supported"
+      ;;
+    *) fail "checkpoint contains an unknown ~/.config type: $kind" ;;
+  esac
+  [[ "$resolved" == /* && "$resolved" != "/" ]] || fail "checkpoint ~/.config resolves to an unsafe path"
+}
+
+write_config_root() {
+  local checkpoint="$1" kind resolved target extra=""
+  IFS=$'\t' read -r kind resolved target extra <<<"$(describe_config_root)"
+  validate_config_root_record "$kind" "$resolved" "$target" "${extra:-}"
+  printf '%s\t%s\t%s\n' "$kind" "$resolved" "$target" >"$checkpoint/config-root.tsv"
+}
+
+config_root_matches() {
+  local kind="$1" resolved="$2" target="$3"
+  local live_kind live_resolved live_target extra=""
+  IFS=$'\t' read -r live_kind live_resolved live_target extra <<<"$(describe_config_root)"
+  [[ -z "$extra" && "$kind" == "$live_kind" && "$resolved" == "$live_resolved" ]] || return 1
+  [[ "$kind" != "link" || "$target" == "$live_target" ]]
+}
+
+path_is_within() {
+  local resolved="$1" root="$2"
+  [[ "$resolved" == "$root" || "$resolved" == "$root/"* ]]
+}
+
+# Restore the checkpointed ~/.config *root* (directory, symlink, or missing)
+# without following a live symlink that was swapped in during the experiment.
+# A real directory is never removed wholesale to recreate a checkpointed link:
+# it can contain untracked configuration that no OmaRewind safety layer saved.
+align_live_config_root() {
+  local checkpoint="$1" path="$HOME/.config"
+  local kind resolved target extra=""
+  local record="$checkpoint/config-root.tsv"
+
+  if [[ ! -f "$record" || -L "$record" ]]; then
+    if [[ -L "$path" ]]; then
+      fail "~/.config is a symlink and this checkpoint does not record its original location. Restore the original ~/.config directory and retry"
+    fi
+    resolved="$(realpath -m -- "$path")"
+    [[ "$resolved" == /* && "$resolved" != "/" ]] || fail "refusing unsafe ~/.config path"
+    printf '%s\n' "$resolved"
+    return 0
+  fi
+
+  IFS=$'\t' read -r kind resolved target extra <"$record"
+  validate_config_root_record "$kind" "$resolved" "$target" "${extra:-}"
+
+  if config_root_matches "$kind" "$resolved" "$target"; then
+    if [[ "$kind" == "link" && ! -d "$resolved" ]]; then
+      fail "checkpointed ~/.config symlink target is unavailable ($resolved). Restore or mount it and retry"
+    fi
+    printf '%s\n' "$resolved"
+    return 0
+  fi
+
+  case "$kind" in
+    dir)
+      if [[ -L "$path" ]]; then
+        rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
+      elif [[ -f "$path" ]]; then
+        fail "~/.config is a file but the checkpoint expects a directory. Move it aside and retry"
+      elif [[ -d "$path" ]]; then
+        fail "~/.config resolved to a different directory than the checkpoint ($resolved). Move it back and retry"
+      fi
+      mkdir -p -- "$path" || fail "could not recreate ~/.config"
+      ;;
+    link)
+      [[ -d "$resolved" ]] \
+        || fail "checkpointed ~/.config symlink target is unavailable ($resolved). Restore or mount it and retry"
+      if [[ -L "$path" ]]; then
+        rm -f -- "$path" || fail "could not replace the experimental ~/.config symlink"
+      elif [[ -d "$path" ]]; then
+        fail "~/.config is a directory but the checkpoint expects a symlink to $target. Move the directory aside and retry"
+      elif [[ -e "$path" ]]; then
+        fail "~/.config is not a symlink but the checkpoint expects a symlink to $target. Move it aside and retry"
+      fi
+      mkdir -p -- "$(dirname -- "$path")"
+      ln -s -- "$target" "$path" || fail "could not restore the checkpointed ~/.config symlink"
+      ;;
+    missing)
+      if [[ -L "$path" ]]; then
+        rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
+      elif [[ -e "$path" ]]; then
+        fail "~/.config exists but was missing at checkpoint time. Move it aside and retry"
+      fi
+      ;;
+    file)
+      if [[ -L "$path" ]]; then
+        rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
+      elif [[ -d "$path" ]]; then
+        fail "~/.config is a directory but the checkpoint expects a file. Move it aside and retry"
+      fi
+      ;;
+  esac
+
+  config_root_matches "$kind" "$resolved" "$target" \
+    || fail "could not restore ~/.config to its checkpointed location ($resolved)"
+  printf '%s\n' "$resolved"
+}
+
+unlink_or_remove_within() {
+  local path="$1" config_root="$2" resolved parent
+  if [[ -L "$path" ]]; then
+    parent="$(realpath -m -- "$(dirname -- "$path")")"
+    path_is_within "$parent" "$config_root" \
+      || fail "refusing to unlink a path outside the checkpointed ~/.config: $path"
+    rm -f -- "$path"
+    return 0
+  fi
+  [[ -e "$path" ]] || return 0
+  resolved="$(realpath -m -- "$path")"
+  path_is_within "$resolved" "$config_root" \
+    || fail "refusing to delete a path outside the checkpointed ~/.config: $path"
+  rm -rf -- "$path"
+}
+
 queue_manifest_path() {
   local root="$1" path="$2" file_list="$3" link_list="$4" relative
   relative="${path#"$root"/}"
@@ -150,6 +297,7 @@ write_manifest_from_root() {
   local root="$1" output="$2" target source path relative signature record
   local temp="${output}.tmp.$$" file_list="${output}.files.$$"
   local link_list="${output}.links.$$" hashes="${output}.hashes.$$"
+  local found="${output}.found.$$"
   : >"$temp"
   : >"$file_list"
   : >"$link_list"
@@ -159,9 +307,13 @@ write_manifest_from_root() {
     if [[ -L "$source" || -f "$source" ]]; then
       queue_manifest_path "$root" "$source" "$file_list" "$link_list"
     elif [[ -d "$source" ]]; then
+      if ! find "$source" \( -type f -o -type l \) -print0 >"$found"; then
+        rm -f -- "$temp" "$file_list" "$link_list" "$hashes" "$found"
+        fail "could not inventory configuration files: $target"
+      fi
       while IFS= read -r -d '' path; do
         queue_manifest_path "$root" "$path" "$file_list" "$link_list"
-      done < <(find "$source" \( -type f -o -type l \) -print0 2>/dev/null)
+      done <"$found"
     fi
   done
 
@@ -184,7 +336,7 @@ write_manifest_from_root() {
   done <"$hashes"
 
   LC_ALL=C sort -t $'\t' -k1,1 -u "$temp" >"$output"
-  rm -f -- "$temp" "$file_list" "$link_list" "$hashes"
+  rm -f -- "$temp" "$file_list" "$link_list" "$hashes" "$found"
 }
 
 write_manifest() {
@@ -222,11 +374,35 @@ record_targets() {
     printf '%s\t%s\n' "$relative" "$kind" >>"$checkpoint/targets.tsv"
     [[ "$kind" == "missing" ]] || copy_target_to_snapshot "$checkpoint" "$relative"
   done
+  write_config_root "$checkpoint"
+  write_directory_list_from_root "$checkpoint/snapshot" "$checkpoint/directories.tsv"
+}
+
+write_directory_list_from_root() {
+  local root="$1" output="$2" path relative
+  local temp="${output}.tmp.$$" found="${output}.found.$$"
+  : >"$temp"
+  if [[ -d "$root" ]]; then
+    if ! find "$root" -mindepth 1 -type d ! -type l -print0 >"$found"; then
+      rm -f -- "$temp" "$found"
+      fail "could not inventory configuration directories"
+    fi
+    while IFS= read -r -d '' path; do
+      relative="${path#"$root"/}"
+      [[ "$relative" == ".config" ]] || validate_relative_path "$relative"
+      is_ignored_relative_path "$relative" && continue
+      printf '%s\n' "$relative" >>"$temp"
+    done <"$found"
+    rm -f -- "$found"
+  fi
+  LC_ALL=C sort -u "$temp" >"$output"
+  rm -f -- "$temp"
 }
 
 verify_checkpoint() (
   local checkpoint="$1" relative kind extra signature expected verify_manifest
-  local target_index=0
+  local target_index=0 verify_dirs inventory path root_kind root_resolved root_target root_extra
+  local root_lines
 
   [[ -d "$checkpoint" && ! -L "$checkpoint" ]] || fail "checkpoint directory is missing or unsafe"
   [[ -d "$checkpoint/snapshot" && ! -L "$checkpoint/snapshot" ]] || fail "checkpoint snapshot directory is missing or unsafe"
@@ -271,12 +447,45 @@ verify_checkpoint() (
     fi
   done <"$checkpoint/manifest.tsv"
 
+  if [[ -e "$checkpoint/config-root.tsv" || -e "$checkpoint/directories.tsv" ]]; then
+    [[ -f "$checkpoint/config-root.tsv" && ! -L "$checkpoint/config-root.tsv" ]] \
+      || fail "checkpoint config root metadata is unsafe"
+    [[ -f "$checkpoint/directories.tsv" && ! -L "$checkpoint/directories.tsv" ]] \
+      || fail "checkpoint directory list is unsafe"
+    IFS=$'\t' read -r root_kind root_resolved root_target root_extra <"$checkpoint/config-root.tsv"
+    validate_config_root_record "$root_kind" "$root_resolved" "$root_target" "${root_extra:-}"
+    root_lines="$(wc -l <"$checkpoint/config-root.tsv")"
+    [[ "$root_lines" -eq 1 ]] || fail "checkpoint config root metadata is malformed"
+  fi
+
   # A single authoritative full-tree comparison detects changed, removed, or
   # injected files while avoiding a redundant checksum pass for every poll.
   verify_manifest="$(mktemp "$STATE_ROOT/.verify.XXXXXX")"
-  trap 'rm -f -- "$verify_manifest"' EXIT INT TERM
+  verify_dirs="$(mktemp "$STATE_ROOT/.verify.XXXXXX")"
+  inventory="$(mktemp "$STATE_ROOT/.verify.XXXXXX")"
+  trap 'rm -f -- "$verify_manifest" "$verify_dirs" "$inventory"' EXIT INT TERM
   write_manifest_from_root "$checkpoint/snapshot" "$verify_manifest"
   cmp -s -- "$checkpoint/manifest.tsv" "$verify_manifest" || fail "checkpoint manifest does not match its snapshot"
+
+  if [[ -f "$checkpoint/directories.tsv" ]]; then
+    write_directory_list_from_root "$checkpoint/snapshot" "$verify_dirs"
+    cmp -s -- "$checkpoint/directories.tsv" "$verify_dirs" \
+      || fail "checkpoint directory list does not match its snapshot"
+  fi
+
+  if ! find "$checkpoint/snapshot" -mindepth 1 -print0 >"$inventory"; then
+    fail "could not inventory checkpoint snapshot"
+  fi
+  while IFS= read -r -d '' path; do
+    relative="${path#"$checkpoint/snapshot"/}"
+    if [[ -L "$path" || -f "$path" ]]; then
+      continue
+    fi
+    if [[ -d "$path" ]]; then
+      continue
+    fi
+    fail "checkpoint snapshot contains an unsupported file type: $relative"
+  done <"$inventory"
 )
 
 valid_history_meta() {
@@ -345,6 +554,7 @@ preview_is_binary_or_large() {
   local source="$1" size
   [[ -e "$source" || -L "$source" ]] || return 1
   [[ -L "$source" ]] && return 1
+  [[ -f "$source" ]] || return 0
   size="$(stat -c '%s' -- "$source")"
   ((size > 262144)) && return 0
   [[ ! -s "$source" ]] && return 1
@@ -561,32 +771,29 @@ command_keep() {
   command_status
 }
 
-safe_target_path() {
-  local path="$1"
-  [[ "$path" == "$HOME/.config/"* ]] || fail "refusing unsafe restore path: $path"
-}
-
 restore_target() {
-  local checkpoint="$1" relative="$2" kind="$3"
-  local destination="$HOME/$relative" source="$checkpoint/snapshot/$relative" config_root resolved
+  local checkpoint="$1" relative="$2" kind="$3" config_root="$4"
+  local destination="$HOME/$relative" source="$checkpoint/snapshot/$relative" resolved parent
   is_tracked_target "$relative" || fail "refusing unknown restore target: $relative"
-  safe_target_path "$destination"
+  [[ "$destination" == "$HOME/.config/"* ]] || fail "refusing unsafe restore path: $destination"
+  [[ -n "$config_root" && "$config_root" == /* && "$config_root" != "/" ]] \
+    || fail "refusing unsafe ~/.config root"
 
   case "$kind" in
     missing)
-      rm -rf -- "$destination"
+      unlink_or_remove_within "$destination" "$config_root"
       ;;
     dir)
       # A directory may have been replaced by a symlink during the experiment.
       # Remove the link itself before rsync so --delete can never traverse its
       # target outside the configuration tree.
       if [[ -L "$destination" || ( -e "$destination" && ! -d "$destination" ) ]]; then
-        rm -rf -- "$destination"
+        unlink_or_remove_within "$destination" "$config_root"
       fi
       mkdir -p -- "$destination"
-      config_root="$(realpath -m -- "$HOME/.config")"
       resolved="$(realpath -m -- "$destination")"
-      [[ "$resolved" == "$config_root/"* ]] || fail "restore target resolves outside .config: $relative"
+      path_is_within "$resolved" "$config_root" \
+        || fail "restore target resolves outside the checkpointed ~/.config: $relative"
       if [[ "$relative" == ".config/omarchy" ]]; then
         rsync -a --delete --exclude='.git/' --exclude="plugins/$PLUGIN_ID/" -- "$source/" "$destination/"
       else
@@ -594,8 +801,11 @@ restore_target() {
       fi
       ;;
     file|link)
-      rm -rf -- "$destination"
+      unlink_or_remove_within "$destination" "$config_root"
       mkdir -p -- "$(dirname -- "$destination")"
+      parent="$(realpath -m -- "$(dirname -- "$destination")")"
+      path_is_within "$parent" "$config_root" \
+        || fail "restore target resolves outside the checkpointed ~/.config: $relative"
       cp -a -- "$source" "$destination"
       ;;
     *) fail "unknown checkpoint target type: $kind" ;;
@@ -628,11 +838,13 @@ capture_current_checkpoint() (
 )
 
 restore_checkpoint() {
-  local checkpoint="$1" relative kind
+  local checkpoint="$1" relative kind config_root
   verify_checkpoint "$checkpoint"
+  config_root="$(align_live_config_root "$checkpoint")"
+  restore_checkpoint_theme "$checkpoint"
   while IFS=$'\t' read -r relative kind; do
     [[ -n "$relative" ]] || continue
-    restore_target "$checkpoint" "$relative" "$kind"
+    restore_target "$checkpoint" "$relative" "$kind" "$config_root"
   done <"$checkpoint/targets.tsv"
 }
 
@@ -669,7 +881,6 @@ command_rewind() {
     find "$ACTIVE_DIR" -mindepth 1 -maxdepth 1 -type d -name 'experiment.tmp.*' -exec rm -rf -- {} +
     capture_current_checkpoint "$ACTIVE_DIR/experiment" "$id-experiment" "Experiment before rewind"
   fi
-  restore_checkpoint_theme "$ACTIVE_DIR"
   restore_checkpoint "$ACTIVE_DIR"
   reload_desktop_configuration
 
@@ -699,7 +910,6 @@ command_undo() {
     find "$latest" -mindepth 1 -maxdepth 1 -type d -name 'before-undo.tmp.*' -exec rm -rf -- {} +
     capture_current_checkpoint "$latest/before-undo" "$id-before-undo" "Configuration before undo"
   fi
-  restore_checkpoint_theme "$latest/experiment"
   restore_checkpoint "$latest/experiment"
   reload_desktop_configuration
 

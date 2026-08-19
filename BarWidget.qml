@@ -131,8 +131,10 @@ BarWidget {
         root.lastStatusOutput = String(text || "")
         // Preserve the last-good state if a transient probe fails. An empty
         // response must never make an active checkpoint look inactive.
-        if (root.lastStatusOutput.trim() !== "")
-          root.adoptStatus(Model.parseStatus(root.lastStatusOutput))
+        if (root.lastStatusOutput.trim() !== "") {
+          var next = Model.parseStatus(root.lastStatusOutput)
+          if (next) root.adoptStatus(next)
+        }
       }
     }
     stderr: StdioCollector {
@@ -200,6 +202,7 @@ BarWidget {
       loops: Animation.Infinite
       NumberAnimation { to: 0.55; duration: 900; easing.type: Easing.InOutSine }
       NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutSine }
+      onRunningChanged: if (!running) button.opacity = 1
     }
 
     onPressed: function(buttonCode) {

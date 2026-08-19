@@ -23,11 +23,16 @@ TestCase {
   }
 
   function test_parseStatusFallsBack() {
-    compare(Model.parseStatus("").active, false)
-    compare(Model.parseStatus("not json").active, false)
-    compare(Model.parseStatus("null").active, false)
-    compare(Model.parseStatus("[]").active, undefined)
+    compare(Model.parseStatus(""), null)
+    compare(Model.parseStatus("not json"), null)
+    compare(Model.parseStatus("null"), null)
+    compare(Model.parseStatus("[]"), null)
+    compare(Model.parseStatus("{}"), null)
+    compare(Model.parseStatus('{"active":"true"}'), null)
     compare(Model.parseStatus('{"active":true,"totalChanges":2}').totalChanges, 2)
+    compare(Model.parseStatus('{"active":false}').active, false)
+    compare(Model.isStatus(Model.emptyStatus()), true)
+    compare(Model.isStatus([]), false)
   }
 
   function test_elapsedFormatting() {
