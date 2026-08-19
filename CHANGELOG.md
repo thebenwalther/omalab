@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2
+
+- Anchor the panel to its bar icon so OmaRewind opens consistently with other
+  Omarchy plugins instead of appearing in the center of the screen.
+- Adapt panel highlights, live metrics, action states, change types, history,
+  and the active bar badge to the current Omarchy theme's accent colors.
+- Add a narrated, soundtracked one-minute product demo and a short promo loop
+  for the public project page and contest submission.
+- Exclude repository-hosted demo videos from packaged plugin archives so
+  installs remain lightweight.
+
 ## 0.3.1
 
 - Make the idle panel's three-step checkpoint, experiment, and rewind flow

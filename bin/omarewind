@@ -8,7 +8,7 @@ export LC_ALL=C
 umask 077
 
 readonly PLUGIN_ID="com.omarchy.omarewind"
-readonly VERSION="0.3.1"
+readonly VERSION="0.3.2"
 readonly STATE_ROOT="${OMAREWIND_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarewind}"
 readonly ACTIVE_DIR="$STATE_ROOT/active"
 readonly HISTORY_DIR="$STATE_ROOT/history"
