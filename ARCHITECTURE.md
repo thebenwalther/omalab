@@ -1,6 +1,6 @@
-# OmaRewind architecture
+# OmaLab architecture
 
-OmaRewind has one source of truth: `bin/omarewind`. The QML bar widget and panel
+OmaLab has one source of truth: `bin/omalab`. The QML bar widget and panel
 invoke that command and render its JSON. They do not maintain an independent
 checkpoint model.
 
@@ -11,7 +11,7 @@ checkpoint model.
 - `Panel.qml` owns interaction, two-step confirmation, keyboard access, and
   action error presentation.
 - `Model.js` contains pure formatting and JSON fallback helpers.
-- `bin/omarewind` owns capture, comparison, validation, restore, locking,
+- `bin/omalab` owns capture, comparison, validation, restore, locking,
   history, notifications, and desktop reload.
 
 The shell polls every five seconds while Fearless Mode is active and every
@@ -29,7 +29,7 @@ returning JSON.
 ## State layout
 
 ```text
-~/.local/state/omarewind/
+~/.local/state/omalab/
 ├── .lock
 ├── active/
 │   ├── meta.json
@@ -62,6 +62,6 @@ reload Hyprland/shell → archive → publish inactive JSON
 Undo follows the same structure, using `experiment/` as its restore source and
 capturing `before-undo/` first.
 
-Git metadata and OmaRewind's own installed directory are excluded. This keeps
+Git metadata and OmaLab's own installed directory are excluded. This keeps
 plugin repositories small in state and prevents the running restore engine
 from replacing itself.

@@ -8,7 +8,7 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  moduleName: "com.omarchy.omarewind"
+  moduleName: "io.github.thebenwalther.omalab"
   ipcTarget: root.moduleName
   manageIpc: false
 
@@ -63,7 +63,7 @@ Panel {
 
   function beginAction(action) {
     if (root.busy || root.effectiveCommandPath === "") {
-      root.resultText = "OmaRewind could not locate its checkpoint command."
+      root.resultText = "OmaLab could not locate its checkpoint command."
       return
     }
     var command = []
@@ -74,7 +74,7 @@ Panel {
     else if (action === "rewind") command = [root.effectiveCommandPath, "rewind", "--yes"]
     else if (action === "undo") command = [root.effectiveCommandPath, "undo", "--yes"]
     else {
-      root.resultText = "Unknown OmaRewind action."
+      root.resultText = "Unknown OmaLab action."
       return
     }
     activeAction = action
@@ -219,7 +219,7 @@ Panel {
       waitForEnd: true
       onStreamFinished: {
         var message = String(text || "").trim()
-        if (message !== "") root.resultText = message.replace(/^OmaRewind:\s*/, "")
+        if (message !== "") root.resultText = message.replace(/^OmaLab:\s*/, "")
       }
     }
     onExited: function(exitCode) {
@@ -244,7 +244,7 @@ Panel {
       waitForEnd: true
       onStreamFinished: {
         var message = String(text || "").trim()
-        if (message !== "") root.previewError = message.replace(/^OmaRewind:\s*/, "")
+        if (message !== "") root.previewError = message.replace(/^OmaLab:\s*/, "")
       }
     }
     onExited: function(exitCode) {
@@ -311,7 +311,7 @@ Panel {
               title: root.fearless ? String(root.status.label || "Fearless Mode") : "Ready to experiment"
               meta: root.fearless
                 ? "FEARLESS MODE · " + Model.formatElapsed(root.status.elapsedSeconds) + " · " + String(root.status.theme || "CURRENT THEME")
-                : "OMA REWIND IS STANDING BY"
+                : "OMALAB · READY FOR AN EXPERIMENT"
               detail: root.fearless ? Model.plural(root.status.totalChanges, "CHANGE") : "SAFE"
               iconComponent: Component {
                 Item {
@@ -366,7 +366,7 @@ Panel {
                 width: parent.width
                 text: {
                   var message = root.resultText !== "" ? root.resultText : String(root.backendErrorText || "Status refresh failed")
-                  return message.replace(/^OmaRewind:\s*/, "").trim()
+                  return message.replace(/^OmaLab:\s*/, "").trim()
                 }
                 color: root.foreground
                 font.family: root.fontFamily

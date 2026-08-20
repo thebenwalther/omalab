@@ -8,7 +8,7 @@ import "Model.js" as Model
 
 BarWidget {
   id: root
-  moduleName: "com.omarchy.omarewind"
+  moduleName: "io.github.thebenwalther.omalab"
 
   property var manifest: null
   property var status: Model.emptyStatus()
@@ -21,8 +21,8 @@ BarWidget {
   // the plugin manifest. Resolve relative to this QML file so both a normal
   // clone and the development symlink locate the bundled command reliably.
   readonly property string commandPath: {
-    if (manifest && manifest.__sourceDir) return manifest.__sourceDir + "/bin/omarewind"
-    var url = String(Qt.resolvedUrl("bin/omarewind"))
+    if (manifest && manifest.__sourceDir) return manifest.__sourceDir + "/bin/omalab"
+    var url = String(Qt.resolvedUrl("bin/omalab"))
     return decodeURIComponent(url.replace(/^file:\/\//, ""))
   }
   readonly property bool fearless: status && status.active === true
@@ -188,13 +188,13 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.vertical
-      ? "\uf0c3"
-      : (root.fearless ? "FEARLESS · " + root.changeCount : "\uf1da")
+    text: root.fearless && !root.vertical
+      ? "FEARLESS · " + root.changeCount
+      : "\uf0c3"
     fontSize: root.fearless && !root.vertical ? Style.font.caption : Style.font.icon
     active: root.fearless
     activeColor: Color.accent
-    tooltipText: root.statusError ? "OmaRewind · Checkpoint needs attention" : Model.tooltip(root.status)
+    tooltipText: root.statusError ? "OmaLab · Checkpoint needs attention" : Model.tooltip(root.status)
     horizontalMargin: root.fearless ? 10 : 8.5
 
     SequentialAnimation on opacity {

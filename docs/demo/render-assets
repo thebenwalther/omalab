@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+readonly PROJECT_ROOT
+RENDER_ROOT="$(mktemp -d)"
+readonly RENDER_ROOT
+
+cleanup() {
+  rm -rf -- "$RENDER_ROOT"
+}
+trap cleanup EXIT
+
+command -v rsvg-convert >/dev/null 2>&1 || {
+  printf 'render-assets: rsvg-convert is required\n' >&2
+  exit 1
+}
+command -v magick >/dev/null 2>&1 || {
+  printf 'render-assets: ImageMagick is required\n' >&2
+  exit 1
+}
+
+rsvg-convert -w 500 -h 572 \
+  "$PROJECT_ROOT/docs/panel-live.svg" \
+  -o "$PROJECT_ROOT/docs/panel-live.png"
+
+rsvg-convert -w 1920 -h 1080 \
+  "$PROJECT_ROOT/docs/demo/title-card.svg" \
+  -o "$RENDER_ROOT/title-card.png"
+
+# librsvg intentionally does not load the title card's relative raster image
+# in every environment. Composite the freshly rendered panel explicitly so
+# this produces the same marketplace preview on Omarchy and in CI.
+magick "$RENDER_ROOT/title-card.png" \
+  \( "$PROJECT_ROOT/docs/panel-live.png" -resize 500x572\! \) \
+  -geometry +1240+96 -composite -strip -define png:compression-level=9 \
+  "$PROJECT_ROOT/preview.png"
+
+cp -- "$PROJECT_ROOT/preview.png" "$PROJECT_ROOT/docs/demo/thumbnail.png"
+
+printf 'Rendered panel, marketplace preview, and video thumbnail.\n'

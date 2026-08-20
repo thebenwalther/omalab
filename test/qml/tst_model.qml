@@ -3,7 +3,7 @@ import QtTest
 import "../../Model.js" as Model
 
 TestCase {
-  name: "OmaRewindModel"
+  name: "OmaLabModel"
 
   function test_emptyStatusIsSafe() {
     var status = Model.emptyStatus()
@@ -62,7 +62,7 @@ TestCase {
   }
 
   function test_tooltips() {
-    compare(Model.tooltip(null), "OmaRewind · Start Fearless Mode")
+    compare(Model.tooltip(null), "OmaLab · Start Fearless Mode")
     compare(Model.tooltip({active: true, label: "Theme test", totalChanges: 1}), "Theme test · 1 change")
     compare(Model.tooltip({active: true, totalChanges: 2}), "Fearless Mode · 2 changes")
   }

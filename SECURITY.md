@@ -1,23 +1,23 @@
-# OmaRewind security model
+# OmaLab security model
 
-OmaRewind restores configuration, so its safest behavior matters more than its
+OmaLab restores configuration, so its safest behavior matters more than its
 most convenient behavior. The backend is deliberately a small, auditable Bash
 program with no daemon, network client, privilege escalation, or dynamic code
 evaluation.
 
 ## Trust boundary
 
-OmaRewind protects a user from accidental configuration changes made after a
+OmaLab protects a user from accidental configuration changes made after a
 checkpoint. It does not protect against a malicious process already running as
 that user. Omarchy plugins run unsandboxed in `omarchy-shell`; any such plugin
-can read or change the same configuration and state that OmaRewind can.
+can read or change the same configuration and state that OmaLab can.
 
-The state directory defaults to `~/.local/state/omarewind`, is created with
+The state directory defaults to `~/.local/state/omalab`, is created with
 owner-only permissions, and may contain copies of the supported configuration
 files. Users should protect their home directory and full-disk encryption as
 they would for the original files.
 
-OmaRewind intentionally does not copy documents, projects, browser profiles,
+OmaLab intentionally does not copy documents, projects, browser profiles,
 SSH keys, password stores, or system files. Root-level rollback is delegated to
 Omarchy's official Snapper flow.
 
@@ -80,5 +80,5 @@ is bounded to 36 lines and 16 KiB, while binary files and files larger than
 ## Reporting a vulnerability
 
 Report security issues privately through GitHub security advisories at
-https://github.com/thebenwalther/omarewind/security/advisories/new.
+https://github.com/thebenwalther/omalab/security/advisories/new.
 Do not include copied configuration or checkpoint contents in a public report.

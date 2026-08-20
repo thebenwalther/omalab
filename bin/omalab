@@ -1,0 +1,1016 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Manifests are sorted in byte order. Keep every later comm/join comparison in
+# that same order regardless of the graphical shell's locale.
+export LC_ALL=C
+umask 077
+
+readonly PLUGIN_ID="io.github.thebenwalther.omalab"
+readonly VERSION="1.0.0"
+readonly STATE_ROOT="${OMALAB_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omalab}"
+readonly ACTIVE_DIR="$STATE_ROOT/active"
+readonly HISTORY_DIR="$STATE_ROOT/history"
+readonly LOCK_FILE="$STATE_ROOT/.lock"
+
+readonly -a TRACKED_TARGETS=(
+  ".config/hypr"
+  ".config/omarchy"
+  ".config/alacritty"
+  ".config/foot"
+  ".config/kitty"
+  ".config/ghostty"
+  ".config/starship.toml"
+  ".config/fastfetch"
+  ".config/btop"
+  ".config/lazygit"
+  ".config/git"
+)
+
+usage() {
+  cat <<'EOF'
+Usage: omalab <command>
+
+Commands:
+  start [label]    Start Fearless Mode and create a configuration checkpoint
+  status           Print current state and changes as JSON
+  changes          Alias for status
+  preview <path>   Show a bounded diff for one changed configuration file
+  keep --yes       Keep the experiment and archive the checkpoint
+  rewind --yes     Restore checkpointed configuration and archive the experiment
+  undo --yes       Undo the most recent configuration rewind
+  history          List completed experiments as JSON
+  doctor           Verify runtime dependencies and print JSON
+  version          Print the OmaLab version
+EOF
+}
+
+fail() {
+  printf 'OmaLab: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+ensure_state_dirs() {
+  [[ "$STATE_ROOT" == /* && "$STATE_ROOT" != "/" ]] || fail "state directory must be a specific absolute path"
+  [[ ! -L "$STATE_ROOT" ]] || fail "state directory must not be a symlink"
+  mkdir -p -- "$STATE_ROOT" "$HISTORY_DIR"
+  [[ -d "$STATE_ROOT" && ! -L "$HISTORY_DIR" && -d "$HISTORY_DIR" ]] || fail "state directory layout is unsafe"
+  [[ ! -L "$ACTIVE_DIR" ]] || fail "active checkpoint must not be a symlink"
+  [[ ! -L "$LOCK_FILE" && ( ! -e "$LOCK_FILE" || -f "$LOCK_FILE" ) ]] || fail "state lock path is unsafe"
+  chmod 700 "$STATE_ROOT" "$HISTORY_DIR" 2>/dev/null || true
+}
+
+cleanup_stale_workdirs() {
+  # Called only while holding the exclusive state lock, so no matching
+  # directory can belong to a live OmaLab operation.
+  find "$STATE_ROOT" -mindepth 1 -maxdepth 1 -type d \
+    \( -name '.status.*' -o -name '.starting.*' \) -exec rm -rf -- {} +
+  find "$STATE_ROOT" -mindepth 1 -maxdepth 1 -type f -name '.verify.*' -delete
+}
+
+with_state_lock() {
+  local mode="$1"
+  shift
+  ensure_state_dirs
+  exec {lock_fd}>>"$LOCK_FILE"
+  chmod 600 "$LOCK_FILE" 2>/dev/null || true
+  flock "$mode" "$lock_fd"
+  [[ "$mode" == "-x" ]] && cleanup_stale_workdirs
+  "$@"
+}
+
+notify() {
+  if command -v omarchy-notification-send >/dev/null 2>&1; then
+    omarchy-notification-send "$1" >/dev/null 2>&1 || true
+  fi
+}
+
+current_theme() {
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy theme current 2>/dev/null | head -n 1 || true
+  fi
+}
+
+current_packages() {
+  if command -v pacman >/dev/null 2>&1; then
+    pacman -Qqe 2>/dev/null | LC_ALL=C sort -u || true
+  fi
+}
+
+current_plugins() {
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy plugin list --json 2>/dev/null \
+      | jq -r '.[]? | select(.enabled == true) | .id' \
+      | LC_ALL=C sort -u || true
+  fi
+}
+
+is_ignored_relative_path() {
+  local relative="$1"
+  [[ "$relative" == */.git || "$relative" == */.git/* ]] && return 0
+  [[ "$relative" == ".config/omarchy/plugins/$PLUGIN_ID" ]] && return 0
+  [[ "$relative" == ".config/omarchy/plugins/$PLUGIN_ID/"* ]] && return 0
+  return 1
+}
+
+is_tracked_target() {
+  local candidate="$1" target
+  for target in "${TRACKED_TARGETS[@]}"; do
+    [[ "$candidate" == "$target" ]] && return 0
+  done
+  return 1
+}
+
+validate_relative_path() {
+  local relative="$1"
+  [[ "$relative" == .config/* ]] || fail "checkpoint contains a path outside .config: $relative"
+  [[ "$relative" != *$'\t'* && "$relative" != *$'\n'* ]] || fail "tabs and newlines in configuration filenames are not supported"
+  [[ "$relative" != */../* && "$relative" != ../* && "$relative" != */.. ]] || fail "checkpoint contains an unsafe path: $relative"
+}
+
+describe_config_root() {
+  local path="$HOME/.config" kind resolved target=""
+  if [[ -L "$path" ]]; then
+    kind="link"
+    resolved="$(realpath -m -- "$path")"
+    target="$(readlink -- "$path")"
+  elif [[ -d "$path" ]]; then
+    kind="dir"
+    resolved="$(realpath -m -- "$path")"
+  elif [[ -e "$path" ]]; then
+    kind="file"
+    resolved="$(realpath -m -- "$path")"
+  else
+    kind="missing"
+    resolved="$(realpath -m -- "$path")"
+  fi
+  printf '%s\t%s\t%s\n' "$kind" "$resolved" "$target"
+}
+
+validate_config_root_record() {
+  local kind="$1" resolved="$2" target="$3" extra="${4:-}"
+  [[ -z "$extra" ]] || fail "checkpoint config root metadata is malformed"
+  case "$kind" in
+    dir|file|missing)
+      [[ -n "$resolved" && -z "$target" ]] || fail "checkpoint config root metadata is malformed"
+      ;;
+    link)
+      [[ -n "$resolved" && -n "$target" ]] || fail "checkpoint config root metadata is malformed"
+      [[ "$target" != *$'\t'* && "$target" != *$'\n'* ]] \
+        || fail "tabs and newlines in ~/.config symlink target are not supported"
+      ;;
+    *) fail "checkpoint contains an unknown ~/.config type: $kind" ;;
+  esac
+  [[ "$resolved" == /* && "$resolved" != "/" ]] || fail "checkpoint ~/.config resolves to an unsafe path"
+}
+
+write_config_root() {
+  local checkpoint="$1" kind resolved target extra=""
+  IFS=$'\t' read -r kind resolved target extra <<<"$(describe_config_root)"
+  validate_config_root_record "$kind" "$resolved" "$target" "${extra:-}"
+  printf '%s\t%s\t%s\n' "$kind" "$resolved" "$target" >"$checkpoint/config-root.tsv"
+}
+
+config_root_matches() {
+  local kind="$1" resolved="$2" target="$3"
+  local live_kind live_resolved live_target extra=""
+  IFS=$'\t' read -r live_kind live_resolved live_target extra <<<"$(describe_config_root)"
+  [[ -z "$extra" && "$kind" == "$live_kind" && "$resolved" == "$live_resolved" ]] || return 1
+  [[ "$kind" != "link" || "$target" == "$live_target" ]]
+}
+
+path_is_within() {
+  local resolved="$1" root="$2"
+  [[ "$resolved" == "$root" || "$resolved" == "$root/"* ]]
+}
+
+# Restore the checkpointed ~/.config *root* (directory, symlink, or missing)
+# without following a live symlink that was swapped in during the experiment.
+# A real directory is never removed wholesale to recreate a checkpointed link:
+# it can contain untracked configuration that no OmaLab safety layer saved.
+align_live_config_root() {
+  local checkpoint="$1" path="$HOME/.config"
+  local kind resolved target extra=""
+  local record="$checkpoint/config-root.tsv"
+
+  if [[ ! -f "$record" || -L "$record" ]]; then
+    if [[ -L "$path" ]]; then
+      fail "$path is a symlink and this checkpoint does not record its original location. Restore the original configuration root and retry"
+    fi
+    resolved="$(realpath -m -- "$path")"
+    [[ "$resolved" == /* && "$resolved" != "/" ]] || fail "refusing unsafe ~/.config path"
+    printf '%s\n' "$resolved"
+    return 0
+  fi
+
+  IFS=$'\t' read -r kind resolved target extra <"$record"
+  validate_config_root_record "$kind" "$resolved" "$target" "${extra:-}"
+
+  if config_root_matches "$kind" "$resolved" "$target"; then
+    if [[ "$kind" == "link" && ! -d "$resolved" ]]; then
+      fail "checkpointed ~/.config symlink target is unavailable ($resolved). Restore or mount it and retry"
+    fi
+    printf '%s\n' "$resolved"
+    return 0
+  fi
+
+  case "$kind" in
+    dir)
+      if [[ -L "$path" ]]; then
+        rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
+      elif [[ -f "$path" ]]; then
+        fail "$path is a file but the checkpoint expects a directory. Move it aside and retry"
+      elif [[ -d "$path" ]]; then
+        fail "$path resolved to a different directory than the checkpoint ($resolved). Move it back and retry"
+      fi
+      mkdir -p -- "$path" || fail "could not recreate ~/.config"
+      ;;
+    link)
+      [[ -d "$resolved" ]] \
+        || fail "checkpointed ~/.config symlink target is unavailable ($resolved). Restore or mount it and retry"
+      if [[ -L "$path" ]]; then
+        rm -f -- "$path" || fail "could not replace the experimental ~/.config symlink"
+      elif [[ -d "$path" ]]; then
+        fail "$path is a directory but the checkpoint expects a symlink to $target. Move the directory aside and retry"
+      elif [[ -e "$path" ]]; then
+        fail "$path is not a symlink but the checkpoint expects a symlink to $target. Move it aside and retry"
+      fi
+      mkdir -p -- "$(dirname -- "$path")"
+      ln -s -- "$target" "$path" || fail "could not restore the checkpointed ~/.config symlink"
+      ;;
+    missing)
+      if [[ -L "$path" ]]; then
+        rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
+      elif [[ -e "$path" ]]; then
+        fail "$path exists but was missing at checkpoint time. Move it aside and retry"
+      fi
+      ;;
+    file)
+      if [[ -L "$path" ]]; then
+        rm -f -- "$path" || fail "could not remove the experimental ~/.config symlink"
+      elif [[ -d "$path" ]]; then
+        fail "$path is a directory but the checkpoint expects a file. Move it aside and retry"
+      fi
+      ;;
+  esac
+
+  config_root_matches "$kind" "$resolved" "$target" \
+    || fail "could not restore ~/.config to its checkpointed location ($resolved)"
+  printf '%s\n' "$resolved"
+}
+
+unlink_or_remove_within() {
+  local path="$1" config_root="$2" resolved parent
+  if [[ -L "$path" ]]; then
+    parent="$(realpath -m -- "$(dirname -- "$path")")"
+    path_is_within "$parent" "$config_root" \
+      || fail "refusing to unlink a path outside the checkpointed ~/.config: $path"
+    rm -f -- "$path"
+    return 0
+  fi
+  [[ -e "$path" ]] || return 0
+  resolved="$(realpath -m -- "$path")"
+  path_is_within "$resolved" "$config_root" \
+    || fail "refusing to delete a path outside the checkpointed ~/.config: $path"
+  rm -rf -- "$path"
+}
+
+queue_manifest_path() {
+  local root="$1" path="$2" file_list="$3" link_list="$4" relative
+  relative="${path#"$root"/}"
+  is_ignored_relative_path "$relative" && return 0
+  validate_relative_path "$relative"
+
+  if [[ -L "$path" ]]; then
+    printf '%s\0' "$path" >>"$link_list"
+  elif [[ -f "$path" ]]; then
+    printf '%s\0' "$path" >>"$file_list"
+  fi
+}
+
+write_manifest_from_root() {
+  local root="$1" output="$2" target source path relative signature record
+  local temp="${output}.tmp.$$" file_list="${output}.files.$$"
+  local link_list="${output}.links.$$" hashes="${output}.hashes.$$"
+  local found="${output}.found.$$"
+  : >"$temp"
+  : >"$file_list"
+  : >"$link_list"
+
+  for target in "${TRACKED_TARGETS[@]}"; do
+    source="$root/$target"
+    if [[ -L "$source" || -f "$source" ]]; then
+      queue_manifest_path "$root" "$source" "$file_list" "$link_list"
+    elif [[ -d "$source" ]]; then
+      if ! find "$source" \( -type f -o -type l \) -print0 >"$found"; then
+        rm -f -- "$temp" "$file_list" "$link_list" "$hashes" "$found"
+        fail "could not inventory configuration files: $target"
+      fi
+      while IFS= read -r -d '' path; do
+        queue_manifest_path "$root" "$path" "$file_list" "$link_list"
+      done <"$found"
+    fi
+  done
+
+  while IFS= read -r -d '' path; do
+    relative="${path#"$root"/}"
+    signature="L:$(readlink -- "$path")"
+    [[ "$signature" != *$'\t'* && "$signature" != *$'\n'* ]] \
+      || fail "tabs and newlines in symlink targets are not supported"
+    printf '%s\t%s\n' "$relative" "$signature" >>"$temp"
+  done <"$link_list"
+
+  xargs -0 -r sha256sum -z -- <"$file_list" >"$hashes"
+  while IFS= read -r -d '' record; do
+    [[ "${#record}" -ge 66 && "${record:64:2}" == "  " ]] \
+      || fail "could not parse configuration checksum"
+    signature="${record:0:64}"
+    path="${record:66}"
+    relative="${path#"$root"/}"
+    printf '%s\tF:%s\n' "$relative" "$signature" >>"$temp"
+  done <"$hashes"
+
+  LC_ALL=C sort -t $'\t' -k1,1 -u "$temp" >"$output"
+  rm -f -- "$temp" "$file_list" "$link_list" "$hashes" "$found"
+}
+
+write_manifest() {
+  write_manifest_from_root "$HOME" "$1"
+}
+
+copy_target_to_snapshot() {
+  local checkpoint="$1" relative="$2"
+  local source="$HOME/$relative" destination="$checkpoint/snapshot/$relative"
+
+  mkdir -p -- "$(dirname -- "$destination")"
+  if [[ -L "$source" || -f "$source" ]]; then
+    cp -a -- "$source" "$destination"
+  elif [[ -d "$source" ]]; then
+    mkdir -p -- "$destination"
+    if [[ "$relative" == ".config/omarchy" ]]; then
+      rsync -a --exclude='.git/' --exclude="plugins/$PLUGIN_ID/" -- "$source/" "$destination/"
+    else
+      rsync -a --exclude='.git/' -- "$source/" "$destination/"
+    fi
+  fi
+}
+
+record_targets() {
+  local checkpoint="$1" relative source kind
+  mkdir -p -- "$checkpoint/snapshot"
+  : >"$checkpoint/targets.tsv"
+  for relative in "${TRACKED_TARGETS[@]}"; do
+    source="$HOME/$relative"
+    if [[ -L "$source" ]]; then kind="link"
+    elif [[ -f "$source" ]]; then kind="file"
+    elif [[ -d "$source" ]]; then kind="dir"
+    else kind="missing"
+    fi
+    printf '%s\t%s\n' "$relative" "$kind" >>"$checkpoint/targets.tsv"
+    [[ "$kind" == "missing" ]] || copy_target_to_snapshot "$checkpoint" "$relative"
+  done
+  write_config_root "$checkpoint"
+  write_directory_list_from_root "$checkpoint/snapshot" "$checkpoint/directories.tsv"
+}
+
+write_directory_list_from_root() {
+  local root="$1" output="$2" path relative
+  local temp="${output}.tmp.$$" found="${output}.found.$$"
+  : >"$temp"
+  if [[ -d "$root" ]]; then
+    if ! find "$root" -mindepth 1 -type d ! -type l -print0 >"$found"; then
+      rm -f -- "$temp" "$found"
+      fail "could not inventory configuration directories"
+    fi
+    while IFS= read -r -d '' path; do
+      relative="${path#"$root"/}"
+      [[ "$relative" == ".config" ]] || validate_relative_path "$relative"
+      is_ignored_relative_path "$relative" && continue
+      printf '%s\n' "$relative" >>"$temp"
+    done <"$found"
+    rm -f -- "$found"
+  fi
+  LC_ALL=C sort -u "$temp" >"$output"
+  rm -f -- "$temp"
+}
+
+verify_checkpoint() (
+  local checkpoint="$1" relative kind extra signature expected verify_manifest
+  local target_index=0 verify_dirs inventory path root_kind root_resolved root_target root_extra
+  local root_lines
+
+  [[ -d "$checkpoint" && ! -L "$checkpoint" ]] || fail "checkpoint directory is missing or unsafe"
+  [[ -d "$checkpoint/snapshot" && ! -L "$checkpoint/snapshot" ]] || fail "checkpoint snapshot directory is missing or unsafe"
+  [[ -f "$checkpoint/meta.json" && ! -L "$checkpoint/meta.json" \
+    && -f "$checkpoint/manifest.tsv" && ! -L "$checkpoint/manifest.tsv" \
+    && -f "$checkpoint/targets.tsv" && ! -L "$checkpoint/targets.tsv" \
+    && -f "$checkpoint/packages.txt" && ! -L "$checkpoint/packages.txt" \
+    && -f "$checkpoint/plugins.txt" && ! -L "$checkpoint/plugins.txt" ]] \
+    || fail "checkpoint metadata is incomplete"
+  jq -e 'type == "object" and (.version == 1) and (.id | type == "string" and test("^[0-9]{8}-[0-9]{6}[A-Za-z0-9._-]*$"))' "$checkpoint/meta.json" >/dev/null \
+    || fail "checkpoint metadata is invalid"
+
+  while IFS=$'\t' read -r relative kind extra; do
+    [[ -n "$relative" && -z "${extra:-}" ]] || fail "checkpoint target metadata is malformed"
+    validate_relative_path "$relative"
+    is_tracked_target "$relative" || fail "checkpoint contains an unknown restore target: $relative"
+    expected="${TRACKED_TARGETS[$target_index]:-}"
+    [[ "$relative" == "$expected" ]] || fail "checkpoint restore target list is incomplete or reordered"
+    target_index=$((target_index + 1))
+    case "$kind" in
+      missing) ;;
+      dir) [[ -d "$checkpoint/snapshot/$relative" && ! -L "$checkpoint/snapshot/$relative" ]] \
+        || fail "checkpoint directory is missing: $relative" ;;
+      file) [[ -f "$checkpoint/snapshot/$relative" && ! -L "$checkpoint/snapshot/$relative" ]] \
+        || fail "checkpoint file is missing: $relative" ;;
+      link) [[ -L "$checkpoint/snapshot/$relative" ]] \
+        || fail "checkpoint link is missing: $relative" ;;
+      *) fail "checkpoint contains an unknown target type: $kind" ;;
+    esac
+  done <"$checkpoint/targets.tsv"
+  [[ "$target_index" -eq "${#TRACKED_TARGETS[@]}" ]] || fail "checkpoint restore target list is incomplete"
+
+  while IFS=$'\t' read -r relative signature extra; do
+    [[ -n "$relative" && -n "$signature" && -z "${extra:-}" ]] || fail "checkpoint manifest is malformed"
+    validate_relative_path "$relative"
+    if [[ "$signature" == F:* ]]; then
+      [[ "$signature" =~ ^F:[0-9a-f]{64}$ ]] || fail "checkpoint file checksum is malformed: $relative"
+    elif [[ "$signature" == L:* ]]; then
+      [[ -n "${signature#L:}" ]] || fail "checkpoint link target is malformed: $relative"
+    else
+      fail "checkpoint manifest contains an unknown entry type: $relative"
+    fi
+  done <"$checkpoint/manifest.tsv"
+
+  if [[ -e "$checkpoint/config-root.tsv" || -e "$checkpoint/directories.tsv" ]]; then
+    [[ -f "$checkpoint/config-root.tsv" && ! -L "$checkpoint/config-root.tsv" ]] \
+      || fail "checkpoint config root metadata is unsafe"
+    [[ -f "$checkpoint/directories.tsv" && ! -L "$checkpoint/directories.tsv" ]] \
+      || fail "checkpoint directory list is unsafe"
+    IFS=$'\t' read -r root_kind root_resolved root_target root_extra <"$checkpoint/config-root.tsv"
+    validate_config_root_record "$root_kind" "$root_resolved" "$root_target" "${root_extra:-}"
+    root_lines="$(wc -l <"$checkpoint/config-root.tsv")"
+    [[ "$root_lines" -eq 1 ]] || fail "checkpoint config root metadata is malformed"
+  fi
+
+  # A single authoritative full-tree comparison detects changed, removed, or
+  # injected files while avoiding a redundant checksum pass for every poll.
+  verify_manifest="$(mktemp "$STATE_ROOT/.verify.XXXXXX")"
+  verify_dirs="$(mktemp "$STATE_ROOT/.verify.XXXXXX")"
+  inventory="$(mktemp "$STATE_ROOT/.verify.XXXXXX")"
+  trap 'rm -f -- "$verify_manifest" "$verify_dirs" "$inventory"' EXIT INT TERM
+  write_manifest_from_root "$checkpoint/snapshot" "$verify_manifest"
+  cmp -s -- "$checkpoint/manifest.tsv" "$verify_manifest" || fail "checkpoint manifest does not match its snapshot"
+
+  if [[ -f "$checkpoint/directories.tsv" ]]; then
+    write_directory_list_from_root "$checkpoint/snapshot" "$verify_dirs"
+    cmp -s -- "$checkpoint/directories.tsv" "$verify_dirs" \
+      || fail "checkpoint directory list does not match its snapshot"
+  fi
+
+  if ! find "$checkpoint/snapshot" -mindepth 1 -print0 >"$inventory"; then
+    fail "could not inventory checkpoint snapshot"
+  fi
+  while IFS= read -r -d '' path; do
+    relative="${path#"$checkpoint/snapshot"/}"
+    if [[ -L "$path" || -f "$path" ]]; then
+      continue
+    fi
+    if [[ -d "$path" ]]; then
+      continue
+    fi
+    fail "checkpoint snapshot contains an unsupported file type: $relative"
+  done <"$inventory"
+)
+
+valid_history_meta() {
+  local meta="$1"
+  [[ -f "$meta" && ! -L "$meta" ]] || return 1
+  jq -e '
+    type == "object" and
+    (.version == 1) and
+    (.id | type == "string" and test("^[0-9]{8}-[0-9]{6}[A-Za-z0-9._-]*$")) and
+    ((.outcome == "kept") or (.outcome == "rewound") or (.outcome == "rewind-undone"))
+  ' "$meta" >/dev/null 2>&1
+}
+
+history_count() {
+  local item count=0
+  while IFS= read -r item; do
+    valid_history_meta "$item/meta.json" && count=$((count + 1))
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null)
+  printf '%s\n' "$count"
+}
+
+latest_history_dir() {
+  local item
+  while IFS= read -r item; do
+    valid_history_meta "$item/meta.json" || continue
+    printf '%s\n' "$item"
+    return 0
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort -r)
+  return 1
+}
+
+json_lines() {
+  jq -Rn '[inputs | select(length > 0)]'
+}
+
+write_diff_files() {
+  local work="$1"
+  local baseline="$ACTIVE_DIR/manifest.tsv" current="$work/current-manifest.tsv"
+  write_manifest "$current"
+  cut -f1 "$baseline" >"$work/baseline-paths"
+  cut -f1 "$current" >"$work/current-paths"
+  comm -13 "$work/baseline-paths" "$work/current-paths" >"$work/files-added"
+  comm -23 "$work/baseline-paths" "$work/current-paths" >"$work/files-deleted"
+  join -t $'\t' -1 1 -2 1 "$baseline" "$current" \
+    | awk -F $'\t' '$2 != $3 {print $1}' >"$work/files-modified"
+}
+
+write_list_diff() {
+  local baseline="$1" current="$2" added="$3" removed="$4"
+  comm -13 "$baseline" "$current" >"$added"
+  comm -23 "$baseline" "$current" >"$removed"
+}
+
+preview_materialize() {
+  local source="$1" output="$2"
+  if [[ -L "$source" ]]; then
+    printf 'symlink -> %s\n' "$(readlink -- "$source")" >"$output"
+  elif [[ -f "$source" ]]; then
+    cp -- "$source" "$output"
+  else
+    : >"$output"
+  fi
+}
+
+preview_is_binary_or_large() {
+  local source="$1" size
+  [[ -e "$source" || -L "$source" ]] || return 1
+  [[ -L "$source" ]] && return 1
+  [[ -f "$source" ]] || return 0
+  size="$(stat -c '%s' -- "$source")"
+  ((size > 262144)) && return 0
+  [[ ! -s "$source" ]] && return 1
+  iconv -f UTF-8 -t UTF-8 -- "$source" >/dev/null 2>&1 || return 0
+  ! grep -Iq '' -- "$source"
+}
+
+command_preview() (
+  local relative="${1:-}" work kind='' before after before_label after_label diff_code=0
+  local binary=false truncated=false total_lines preview_size preview
+  [[ -d "$ACTIVE_DIR" ]] || fail "Fearless Mode is not active"
+  [[ -n "$relative" ]] || fail "preview requires a changed configuration path"
+  validate_relative_path "$relative"
+  verify_checkpoint "$ACTIVE_DIR"
+
+  work="$(mktemp -d "$STATE_ROOT/.status.XXXXXX")"
+  trap 'rm -rf -- "$work"' EXIT INT TERM
+  write_diff_files "$work"
+  if grep -Fqx -- "$relative" "$work/files-added"; then kind='added'
+  elif grep -Fqx -- "$relative" "$work/files-modified"; then kind='modified'
+  elif grep -Fqx -- "$relative" "$work/files-deleted"; then kind='deleted'
+  else fail "preview path is not part of the active change set"
+  fi
+
+  before="$ACTIVE_DIR/snapshot/$relative"
+  after="$HOME/$relative"
+  if preview_is_binary_or_large "$before" || preview_is_binary_or_large "$after"; then
+    binary=true
+    preview="Binary or larger than 256 KiB. OmaLab will restore it, but does not render its contents."
+  else
+    preview_materialize "$before" "$work/before"
+    preview_materialize "$after" "$work/after"
+    before_label="checkpoint/$relative"
+    after_label="current/$relative"
+    [[ "$kind" == 'added' ]] && before_label='/dev/null'
+    [[ "$kind" == 'deleted' ]] && after_label='/dev/null'
+    diff -u --label "$before_label" --label "$after_label" "$work/before" "$work/after" >"$work/diff" || diff_code=$?
+    ((diff_code <= 1)) || fail "could not generate preview"
+    total_lines="$(wc -l <"$work/diff")"
+    ((total_lines > 36)) && truncated=true
+    head -n 36 "$work/diff" >"$work/diff-lines"
+    preview_size="$(stat -c '%s' "$work/diff-lines")"
+    ((preview_size > 16384)) && truncated=true
+    preview="$(head -c 16384 "$work/diff-lines")"
+    [[ -n "$preview" ]] || preview="No textual difference is available."
+  fi
+
+  jq -n \
+    --arg path "$relative" \
+    --arg kind "$kind" \
+    --arg text "$preview" \
+    --argjson binary "$binary" \
+    --argjson truncated "$truncated" \
+    '{path: $path, kind: $kind, binary: $binary, truncated: $truncated, text: $text}'
+)
+
+command_start() (
+  local label="${1:-Untitled experiment}" checkpoint now epoch id theme
+  [[ ! -e "$ACTIVE_DIR" ]] || fail "Fearless Mode is already active"
+  [[ -n "$label" && "${#label}" -le 120 ]] || fail "experiment label must be between 1 and 120 characters"
+  [[ "$label" != *$'\t'* && "$label" != *$'\n'* && "$label" != *$'\r'* ]] || fail "experiment label must be a single line"
+
+  require_command jq
+  require_command rsync
+  require_command sha256sum
+  ensure_state_dirs
+
+  checkpoint="$(mktemp -d "$STATE_ROOT/.starting.XXXXXX")"
+  trap 'rm -rf -- "${checkpoint:-}"' EXIT INT TERM
+  chmod 700 "$checkpoint"
+
+  epoch="$(date +%s)"
+  now="$(date --iso-8601=seconds)"
+  id="$(date +%Y%m%d-%H%M%S-%N)"
+  theme="$(current_theme)"
+
+  jq -n \
+    --arg id "$id" \
+    --arg label "$label" \
+    --arg startedAt "$now" \
+    --argjson startedAtEpoch "$epoch" \
+    --arg theme "$theme" \
+    '{version: 1, id: $id, label: $label, startedAt: $startedAt, startedAtEpoch: $startedAtEpoch, theme: $theme, outcome: "active"}' \
+    >"$checkpoint/meta.json"
+
+  record_targets "$checkpoint"
+  write_manifest "$checkpoint/manifest.tsv"
+  current_packages >"$checkpoint/packages.txt"
+  current_plugins >"$checkpoint/plugins.txt"
+
+  verify_checkpoint "$checkpoint"
+  mv -T -- "$checkpoint" "$ACTIVE_DIR"
+  notify "OmaLab · Fearless Mode started"
+  command_status
+)
+
+command_status() (
+  local history=0 work meta now epoch elapsed latest='' item recent_lines=''
+  local recent_history='[]' last_session='null' can_undo=false
+  ensure_state_dirs
+  while IFS= read -r item; do
+    valid_history_meta "$item/meta.json" || continue
+    history=$((history + 1))
+    [[ -n "$latest" ]] || latest="$item"
+    if ((history <= 5)); then
+      recent_lines+="$(jq -c '.' "$item/meta.json")"$'\n'
+    fi
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort -r)
+  recent_history="$(jq -s '.' <<<"$recent_lines")"
+  last_session="$(jq -c '.[0] // null' <<<"$recent_history")"
+  if [[ -n "$latest" ]]; then
+    if [[ "$(jq -r '.outcome // ""' "$latest/meta.json")" == "rewound" && -d "$latest/experiment" ]]; then
+      can_undo=true
+    fi
+  fi
+
+  if [[ ! -d "$ACTIVE_DIR" ]]; then
+    jq -n \
+      --argjson historyCount "${history:-0}" \
+      --argjson lastSession "$last_session" \
+      --argjson recentHistory "$recent_history" \
+      --argjson canUndo "$can_undo" \
+      '{active: false, totalChanges: 0, historyCount: $historyCount, canUndo: $canUndo, lastSession: $lastSession, recentHistory: $recentHistory, files: {added: 0, modified: 0, deleted: 0, total: 0}, packages: {added: 0, removed: 0, total: 0}, plugins: {added: 0, removed: 0, total: 0}, changes: []}'
+    return 0
+  fi
+
+  verify_checkpoint "$ACTIVE_DIR"
+  work="$(mktemp -d "$STATE_ROOT/.status.XXXXXX")"
+  trap 'rm -rf -- "$work"' EXIT INT TERM
+
+  write_diff_files "$work"
+  current_packages >"$work/current-packages"
+  current_plugins >"$work/current-plugins"
+  write_list_diff "$ACTIVE_DIR/packages.txt" "$work/current-packages" "$work/packages-added" "$work/packages-removed"
+  write_list_diff "$ACTIVE_DIR/plugins.txt" "$work/current-plugins" "$work/plugins-added" "$work/plugins-removed"
+
+  meta="$(<"$ACTIVE_DIR/meta.json")"
+  epoch="$(jq -r '.startedAtEpoch // 0' <<<"$meta")"
+  now="$(date +%s)"
+  elapsed=$((now - epoch))
+  ((elapsed < 0)) && elapsed=0
+
+  jq -n \
+    --argjson meta "$meta" \
+    --argjson elapsedSeconds "$elapsed" \
+    --argjson historyCount "${history:-0}" \
+    --argjson lastSession "$last_session" \
+    --argjson recentHistory "$recent_history" \
+    --argjson filesAdded "$(wc -l <"$work/files-added")" \
+    --argjson filesModified "$(wc -l <"$work/files-modified")" \
+    --argjson filesDeleted "$(wc -l <"$work/files-deleted")" \
+    --argjson packagesAdded "$(wc -l <"$work/packages-added")" \
+    --argjson packagesRemoved "$(wc -l <"$work/packages-removed")" \
+    --argjson pluginsAdded "$(wc -l <"$work/plugins-added")" \
+    --argjson pluginsRemoved "$(wc -l <"$work/plugins-removed")" \
+    --argjson addedFiles "$(json_lines <"$work/files-added")" \
+    --argjson modifiedFiles "$(json_lines <"$work/files-modified")" \
+    --argjson deletedFiles "$(json_lines <"$work/files-deleted")" \
+    --argjson addedPackages "$(json_lines <"$work/packages-added")" \
+    --argjson removedPackages "$(json_lines <"$work/packages-removed")" \
+    --argjson addedPlugins "$(json_lines <"$work/plugins-added")" \
+    --argjson removedPlugins "$(json_lines <"$work/plugins-removed")" \
+    '
+      def tagged($kind; $items): [$items[] | {kind: $kind, path: .}];
+      ($filesAdded + $filesModified + $filesDeleted) as $fileTotal |
+      ($packagesAdded + $packagesRemoved) as $packageTotal |
+      ($pluginsAdded + $pluginsRemoved) as $pluginTotal |
+      {
+        active: true,
+        id: $meta.id,
+        label: $meta.label,
+        startedAt: $meta.startedAt,
+        startedAtEpoch: $meta.startedAtEpoch,
+        elapsedSeconds: $elapsedSeconds,
+        theme: $meta.theme,
+        historyCount: $historyCount,
+        canUndo: false,
+        lastSession: $lastSession,
+        recentHistory: $recentHistory,
+        files: {added: $filesAdded, modified: $filesModified, deleted: $filesDeleted, total: $fileTotal},
+        packages: {added: $packagesAdded, removed: $packagesRemoved, total: $packageTotal, addedNames: $addedPackages, removedNames: $removedPackages},
+        plugins: {added: $pluginsAdded, removed: $pluginsRemoved, total: $pluginTotal, addedNames: $addedPlugins, removedNames: $removedPlugins},
+        totalChanges: ($fileTotal + $packageTotal + $pluginTotal),
+        changes: ((tagged("added"; $addedFiles) + tagged("modified"; $modifiedFiles) + tagged("deleted"; $deletedFiles))[:12])
+      }
+    '
+
+  rm -rf -- "$work"
+  trap - EXIT INT TERM
+)
+
+archive_active() {
+  local outcome="$1" destination base temp counter=1
+  [[ -d "$ACTIVE_DIR" ]] || fail "Fearless Mode is not active"
+  temp="$ACTIVE_DIR/meta.json.tmp"
+  jq --arg outcome "$outcome" --arg finishedAt "$(date --iso-8601=seconds)" \
+    '.outcome = $outcome | .finishedAt = $finishedAt' "$ACTIVE_DIR/meta.json" >"$temp"
+  mv -T -- "$temp" "$ACTIVE_DIR/meta.json"
+  base="$HISTORY_DIR/$(jq -r '.id' "$ACTIVE_DIR/meta.json")-$outcome"
+  destination="$base"
+  while [[ -e "$destination" ]]; do
+    destination="$base-$counter"
+    counter=$((counter + 1))
+  done
+  mv -T -- "$ACTIVE_DIR" "$destination"
+}
+
+command_keep() {
+  [[ "${1:-}" == "--yes" ]] || fail "keeping an experiment requires --yes"
+  ensure_state_dirs
+  verify_checkpoint "$ACTIVE_DIR"
+  archive_active "kept"
+  notify "OmaLab · Changes kept"
+  command_status
+}
+
+restore_target() {
+  local checkpoint="$1" relative="$2" kind="$3" config_root="$4"
+  local destination="$HOME/$relative" source="$checkpoint/snapshot/$relative" resolved parent
+  is_tracked_target "$relative" || fail "refusing unknown restore target: $relative"
+  [[ "$destination" == "$HOME/.config/"* ]] || fail "refusing unsafe restore path: $destination"
+  [[ -n "$config_root" && "$config_root" == /* && "$config_root" != "/" ]] \
+    || fail "refusing unsafe ~/.config root"
+
+  case "$kind" in
+    missing)
+      unlink_or_remove_within "$destination" "$config_root"
+      ;;
+    dir)
+      # A directory may have been replaced by a symlink during the experiment.
+      # Remove the link itself before rsync so --delete can never traverse its
+      # target outside the configuration tree.
+      if [[ -L "$destination" || ( -e "$destination" && ! -d "$destination" ) ]]; then
+        unlink_or_remove_within "$destination" "$config_root"
+      fi
+      mkdir -p -- "$destination"
+      resolved="$(realpath -m -- "$destination")"
+      path_is_within "$resolved" "$config_root" \
+        || fail "restore target resolves outside the checkpointed ~/.config: $relative"
+      if [[ "$relative" == ".config/omarchy" ]]; then
+        rsync -a --delete --exclude='.git/' --exclude="plugins/$PLUGIN_ID/" -- "$source/" "$destination/"
+      else
+        rsync -a --delete --exclude='.git/' -- "$source/" "$destination/"
+      fi
+      ;;
+    file|link)
+      unlink_or_remove_within "$destination" "$config_root"
+      mkdir -p -- "$(dirname -- "$destination")"
+      parent="$(realpath -m -- "$(dirname -- "$destination")")"
+      path_is_within "$parent" "$config_root" \
+        || fail "restore target resolves outside the checkpointed ~/.config: $relative"
+      cp -a -- "$source" "$destination"
+      ;;
+    *) fail "unknown checkpoint target type: $kind" ;;
+  esac
+}
+
+capture_current_checkpoint() (
+  local destination="$1" id="$2" label="$3" temp now epoch theme
+  [[ ! -e "$destination" && ! -L "$destination" ]] || fail "safety checkpoint already exists or is unsafe"
+  temp="$(mktemp -d "${destination}.tmp.XXXXXX")"
+  trap 'rm -rf -- "$temp"' EXIT INT TERM
+  epoch="$(date +%s)"
+  now="$(date --iso-8601=seconds)"
+  theme="$(current_theme)"
+
+  jq -n \
+    --arg id "$id" \
+    --arg label "$label" \
+    --arg startedAt "$now" \
+    --argjson startedAtEpoch "$epoch" \
+    --arg theme "$theme" \
+    '{version: 1, id: $id, label: $label, startedAt: $startedAt, startedAtEpoch: $startedAtEpoch, theme: $theme, outcome: "safety-copy"}' \
+    >"$temp/meta.json"
+  record_targets "$temp"
+  write_manifest "$temp/manifest.tsv"
+  current_packages >"$temp/packages.txt"
+  current_plugins >"$temp/plugins.txt"
+  verify_checkpoint "$temp"
+  mv -T -- "$temp" "$destination"
+)
+
+restore_checkpoint() {
+  local checkpoint="$1" relative kind config_root
+  verify_checkpoint "$checkpoint"
+  config_root="$(align_live_config_root "$checkpoint")"
+  restore_checkpoint_theme "$checkpoint"
+  while IFS=$'\t' read -r relative kind; do
+    [[ -n "$relative" ]] || continue
+    restore_target "$checkpoint" "$relative" "$kind" "$config_root"
+  done <"$checkpoint/targets.tsv"
+}
+
+restore_checkpoint_theme() {
+  local checkpoint="$1" theme current
+  theme="$(jq -r '.theme // empty' "$checkpoint/meta.json")"
+  current="$(current_theme)"
+  if [[ -n "$theme" && "$theme" != "$current" ]] && command -v omarchy >/dev/null 2>&1; then
+    omarchy theme set "$theme" >/dev/null 2>&1 || true
+  fi
+}
+
+reload_desktop_configuration() {
+  if command -v hyprctl >/dev/null 2>&1; then
+    hyprctl reload >/dev/null 2>&1 || true
+  fi
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy shell -q shell rescanPlugins >/dev/null 2>&1 || true
+  fi
+}
+
+command_rewind() {
+  local id
+  [[ "${1:-}" == "--yes" ]] || fail "rewinding configuration requires --yes"
+  [[ -d "$ACTIVE_DIR" ]] || fail "Fearless Mode is not active"
+  ensure_state_dirs
+  require_command rsync
+  verify_checkpoint "$ACTIVE_DIR"
+  id="$(jq -r '.id' "$ACTIVE_DIR/meta.json")"
+  [[ ! -L "$ACTIVE_DIR/experiment" ]] || fail "experiment safety checkpoint is unsafe"
+  if [[ -d "$ACTIVE_DIR/experiment" ]]; then
+    verify_checkpoint "$ACTIVE_DIR/experiment"
+  else
+    find "$ACTIVE_DIR" -mindepth 1 -maxdepth 1 -type d -name 'experiment.tmp.*' -exec rm -rf -- {} +
+    capture_current_checkpoint "$ACTIVE_DIR/experiment" "$id-experiment" "Experiment before rewind"
+  fi
+  restore_checkpoint "$ACTIVE_DIR"
+  reload_desktop_configuration
+
+  archive_active "rewound"
+  notify "OmaLab · Configuration restored"
+  command_status
+}
+
+command_undo() {
+  local latest id temp
+  [[ "${1:-}" == "--yes" ]] || fail "undoing a rewind requires --yes"
+  [[ ! -d "$ACTIVE_DIR" ]] || fail "finish the active experiment before undoing a rewind"
+  ensure_state_dirs
+  require_command rsync
+  latest="$(latest_history_dir || true)"
+  [[ -n "$latest" ]] || fail "there is no rewind to undo"
+  [[ "$(jq -r '.outcome // ""' "$latest/meta.json")" == "rewound" && -d "$latest/experiment" ]] \
+    || fail "the latest experiment is not an undoable rewind"
+
+  verify_checkpoint "$latest"
+  verify_checkpoint "$latest/experiment"
+  id="$(jq -r '.id' "$latest/meta.json")"
+  [[ ! -L "$latest/before-undo" ]] || fail "undo safety checkpoint is unsafe"
+  if [[ -d "$latest/before-undo" ]]; then
+    verify_checkpoint "$latest/before-undo"
+  else
+    find "$latest" -mindepth 1 -maxdepth 1 -type d -name 'before-undo.tmp.*' -exec rm -rf -- {} +
+    capture_current_checkpoint "$latest/before-undo" "$id-before-undo" "Configuration before undo"
+  fi
+  restore_checkpoint "$latest/experiment"
+  reload_desktop_configuration
+
+  temp="$latest/meta.json.tmp"
+  jq --arg undoAt "$(date --iso-8601=seconds)" \
+    '.outcome = "rewind-undone" | .undoAt = $undoAt' "$latest/meta.json" >"$temp"
+  mv -T -- "$temp" "$latest/meta.json"
+  notify "OmaLab · Rewind undone"
+  command_status
+}
+
+command_history() {
+  ensure_state_dirs
+  local item meta first=true
+  printf '['
+  while IFS= read -r item; do
+    valid_history_meta "$item/meta.json" || continue
+    meta="$(jq -c '.' "$item/meta.json")"
+    $first || printf ','
+    printf '%s' "$meta"
+    first=false
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort -r)
+  printf ']\n'
+}
+
+command_doctor() {
+  local missing=() command active=false integrity='null' state_bytes state_mode lock_mode stale history
+  local item outcome history_total=0 history_corrupt=0
+  for command in jq rsync sha256sum find xargs sort cut comm join awk cmp diff grep head iconv flock realpath stat du; do
+    command -v "$command" >/dev/null 2>&1 || missing+=("$command")
+  done
+  state_bytes="$(du -sb -- "$STATE_ROOT" | cut -f1)"
+  state_mode="$(stat -c '%a' "$STATE_ROOT")"
+  lock_mode="$(stat -c '%a' "$LOCK_FILE")"
+  stale="$(find "$STATE_ROOT" -mindepth 1 -maxdepth 1 \( -name '.status.*' -o -name '.starting.*' -o -name '.verify.*' \) -printf '.\n' | wc -l)"
+  history="$(history_count | tr -d ' ')"
+  while IFS= read -r item; do
+    history_total=$((history_total + 1))
+    if ! valid_history_meta "$item/meta.json" || ! verify_checkpoint "$item" >/dev/null 2>&1; then
+      history_corrupt=$((history_corrupt + 1))
+      continue
+    fi
+    outcome="$(jq -r '.outcome' "$item/meta.json")"
+    if [[ "$outcome" == "rewound" || "$outcome" == "rewind-undone" ]]; then
+      if [[ -L "$item/experiment" ]] || ! verify_checkpoint "$item/experiment" >/dev/null 2>&1; then
+        history_corrupt=$((history_corrupt + 1))
+        continue
+      fi
+    fi
+    if [[ "$outcome" == "rewind-undone" ]]; then
+      if [[ -L "$item/before-undo" ]] || ! verify_checkpoint "$item/before-undo" >/dev/null 2>&1; then
+        history_corrupt=$((history_corrupt + 1))
+      fi
+    fi
+  done < <(find "$HISTORY_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null)
+  if [[ -d "$ACTIVE_DIR" ]]; then
+    active=true
+    if verify_checkpoint "$ACTIVE_DIR" >/dev/null 2>&1; then integrity=true; else integrity=false; fi
+  fi
+  jq -n \
+    --argjson missing "$(printf '%s\n' "${missing[@]:-}" | json_lines)" \
+    --arg stateRoot "$STATE_ROOT" \
+    --arg pluginId "$PLUGIN_ID" \
+    --arg version "$VERSION" \
+    --arg stateMode "$state_mode" \
+    --arg lockMode "$lock_mode" \
+    --argjson stateBytes "$state_bytes" \
+    --argjson historyCount "${history:-0}" \
+    --argjson historyTotal "$history_total" \
+    --argjson historyCorrupt "$history_corrupt" \
+    --argjson staleEntries "$stale" \
+    --argjson active "$active" \
+    --argjson integrity "$integrity" \
+    '{
+      ok: (($missing | length) == 0 and $stateMode == "700" and $lockMode == "600" and $staleEntries == 0 and $integrity != false and $historyCorrupt == 0),
+      missing: $missing,
+      pluginId: $pluginId,
+      version: $version,
+      state: {path: $stateRoot, bytes: $stateBytes, mode: $stateMode, lockMode: $lockMode, staleEntries: $staleEntries},
+      checkpoint: {active: $active, integrity: $integrity},
+      history: {count: $historyCount, totalEntries: $historyTotal, corruptEntries: $historyCorrupt},
+      historyCount: $historyCount
+    }'
+}
+
+main() {
+  local command="${1:-}"
+  shift || true
+  case "$command" in
+    start) with_state_lock -x command_start "$@" ;;
+    status|changes) with_state_lock -s command_status ;;
+    preview) with_state_lock -s command_preview "$@" ;;
+    keep) with_state_lock -x command_keep "$@" ;;
+    rewind) with_state_lock -x command_rewind "$@" ;;
+    undo) with_state_lock -x command_undo "$@" ;;
+    history) with_state_lock -s command_history ;;
+    doctor) with_state_lock -s command_doctor ;;
+    version) printf '%s\n' "$VERSION" ;;
+    -h|--help|help|"") usage ;;
+    *) usage >&2; fail "unknown command: $command" ;;
+  esac
+}
+
+main "$@"

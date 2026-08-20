@@ -30,9 +30,9 @@ jobs:
             shellcheck
       - name: Validate shell and manifest
         run: |
-          bash -n bin/omarewind test/all test/backend-test.sh test/package-test.sh
-          shellcheck --severity=style bin/omarewind test/all test/backend-test.sh test/package-test.sh
-          jq -e '.schemaVersion == 1 and .id == "com.omarchy.omarewind"' manifest.json >/dev/null
+          bash -n bin/omalab docs/demo/render-assets test/all test/backend-test.sh test/package-test.sh
+          shellcheck --severity=style bin/omalab docs/demo/render-assets test/all test/backend-test.sh test/package-test.sh
+          jq -e '.schemaVersion == 1 and .id == "io.github.thebenwalther.omalab"' manifest.json >/dev/null
       - name: Run isolated backend suite
         run: test/backend-test.sh
       - name: Test presentation model
@@ -40,4 +40,4 @@ jobs:
       - name: Verify packaged archive
         run: |
           git archive --format=tar HEAD | tar -tf - >/dev/null
-          test "$(git ls-tree HEAD bin/omarewind | awk '{print $1}')" = "100755"
+          test "$(git ls-tree HEAD bin/omalab | awk '{print $1}')" = "100755"

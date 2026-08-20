@@ -89,7 +89,7 @@ function lastSessionMeta(session) {
 }
 
 function tooltip(status) {
-  if (!status || !status.active) return "OmaRewind · Start Fearless Mode"
+  if (!status || !status.active) return "OmaLab · Start Fearless Mode"
   var count = Number(status.totalChanges) || 0
   var label = String(status.label || "Fearless Mode")
   return label + " · " + plural(count, "change").toLowerCase()

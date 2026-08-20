@@ -1,6 +1,6 @@
-# Contributing to OmaRewind
+# Contributing to OmaLab
 
-OmaRewind changes user configuration, so a contribution is complete only when
+OmaLab changes user configuration, so a contribution is complete only when
 its failure path is as deliberate as its success path.
 
 ## Local checks
@@ -22,7 +22,7 @@ flows, and capture both idle and active panel states.
 
 ## Design rules
 
-- Keep `bin/omarewind` as the source of truth. QML renders its JSON and invokes
+- Keep `bin/omalab` as the source of truth. QML renders its JSON and invokes
   its commands; it does not implement a second restore engine.
 - Never add a restore target without an explicit allowlist entry and an
   isolated round-trip test.

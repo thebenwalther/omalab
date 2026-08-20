@@ -1,23 +1,23 @@
-# OmaRewind
+# OmaLab
 
-[![CI](https://github.com/thebenwalther/omarewind/actions/workflows/ci.yml/badge.svg)](https://github.com/thebenwalther/omarewind/actions/workflows/ci.yml)
+[![CI](https://github.com/thebenwalther/omalab/actions/workflows/ci.yml/badge.svg)](https://github.com/thebenwalther/omalab/actions/workflows/ci.yml)
 
-![OmaRewind — Fearless Mode for Omarchy](docs/hero.svg)
+![OmaLab — Fearless Mode for Omarchy](docs/hero.svg)
 
 **Fearless Mode for Omarchy.** Capture your desktop configuration, experiment
 freely, then keep the result or rewind to exactly where you started.
 
-OmaRewind is an Omarchy 4 bar plugin built for the moment before you install a
+OmaLab is an Omarchy 4 bar plugin built for the moment before you install a
 wild theme, replace your keybindings, or try an unfamiliar plugin and think:
 *I hope I can get back from this.*
 
 ## Watch it work
 
-[![Watch the one-minute OmaRewind demo](docs/demo/thumbnail.png)](docs/demo/omarewind-prize-demo.mp4)
+[![Watch the one-minute OmaLab demo](docs/demo/thumbnail.png)](docs/demo/omalab-prize-demo.mp4)
 
 See the real checkpoint, theme experiment, configuration diff, rewind, and
-reversible undo in the [narrated one-minute demo](docs/demo/omarewind-prize-demo.mp4),
-or watch the [soundtracked 14-second promo loop](docs/demo/omarewind-demo-loop.mp4).
+reversible undo in the [narrated one-minute demo](docs/demo/omalab-prize-demo.mp4),
+or watch the [soundtracked 14-second promo loop](docs/demo/omalab-demo-loop.mp4).
 
 ## What it does
 
@@ -29,9 +29,9 @@ or watch the [soundtracked 14-second promo loop](docs/demo/omarewind-demo-loop.m
 - Preserves the experiment before every rewind, so the last rewind can itself
   be undone from the panel.
 - Restores the starting Omarchy theme when it changed.
-- Preserves OmaRewind's own installed plugin directory during a rewind.
+- Preserves OmaLab's own installed plugin directory during a rewind.
 - Archives kept and rewound experiments under
-  `~/.local/state/omarewind/history/`.
+  `~/.local/state/omalab/history/`.
 - Opens Omarchy's official `omarchy snapshot create` flow for an optional root
   snapshot before package or kernel experiments.
 
@@ -41,14 +41,14 @@ system package set is not.
 
 ## The experience
 
-When idle, OmaRewind is a small history icon in the bar. Give the experiment an
+When idle, OmaLab is a small history icon in the bar. Give the experiment an
 optional name, start Fearless Mode, and it becomes a live badge:
 
 ```text
 FEARLESS · 7
 ```
 
-![OmaRewind showing one changed configuration file and its live diff](docs/panel-live.png)
+![OmaLab showing one changed configuration file and its live diff](docs/panel-live.png)
 
 The panel separates file, package, and plugin changes, shows recent modified
 paths, and opens a bounded unified diff when a path is clicked. It offers two
@@ -70,7 +70,7 @@ keyboard accessible with `S`, `K`, `R`, `U`, and `Esc`.
 Active and idle scan intervals can be tuned from Omarchy's bar-widget settings;
 the defaults are five and thirty seconds respectively.
 
-After a rewind, the idle panel offers **Undo Last Rewind**. OmaRewind can do
+After a rewind, the idle panel offers **Undo Last Rewind**. OmaLab can do
 that because it captures the experiment into the owner-only local
 state directory before restoring anything. Undo also uses a two-step
 confirmation and preserves the post-rewind state before it acts.
@@ -83,18 +83,18 @@ of what was kept, rewound, or restored. The CLI retains the complete history.
 Review the source, then let Omarchy clone, validate, and enable the plugin:
 
 ```bash
-omarchy plugin add https://github.com/thebenwalther/omarewind.git --enable
+omarchy plugin add https://github.com/thebenwalther/omalab.git --enable
 ```
 
 Omarchy displays its standard unsandboxed-plugin warning and asks for
 confirmation before cloning. Future releases can be installed with:
 
 ```bash
-omarchy plugin update com.omarchy.omarewind
+omarchy plugin update io.github.thebenwalther.omalab
 ```
 
-Remove the plugin with `omarchy plugin remove com.omarchy.omarewind`. Checkpoint
-history remains under `~/.local/state/omarewind/` unless the user deliberately
+Remove the plugin with `omarchy plugin remove io.github.thebenwalther.omalab`. Checkpoint
+history remains under `~/.local/state/omalab/` unless the user deliberately
 removes it.
 
 ## Development install
@@ -103,17 +103,17 @@ The repository root is the plugin root. Link it into the user plugin directory
 so QML changes hot-reload while developing:
 
 ```bash
-ln -s "$HOME/Work/omarewind" \
-  "$HOME/.config/omarchy/plugins/com.omarchy.omarewind"
+ln -s "$HOME/Work/omalab" \
+  "$HOME/.config/omarchy/plugins/io.github.thebenwalther.omalab"
 omarchy shell shell rescanPlugins
-omarchy plugin enable com.omarchy.omarewind --section right
+omarchy plugin enable io.github.thebenwalther.omalab --section right
 ```
 
 Remove the development link with:
 
 ```bash
-omarchy plugin disable com.omarchy.omarewind
-rm "$HOME/.config/omarchy/plugins/com.omarchy.omarewind"
+omarchy plugin disable io.github.thebenwalther.omalab
+rm "$HOME/.config/omarchy/plugins/io.github.thebenwalther.omalab"
 omarchy shell shell rescanPlugins
 ```
 
@@ -125,14 +125,14 @@ the tests.
 The QML interface uses the same auditable command available to users:
 
 ```bash
-bin/omarewind start "Trying a new rice"
-bin/omarewind status
-bin/omarewind preview ".config/hypr/bindings.lua"
-bin/omarewind keep --yes
-bin/omarewind rewind --yes
-bin/omarewind undo --yes
-bin/omarewind history
-bin/omarewind doctor
+bin/omalab start "Trying a new rice"
+bin/omalab status
+bin/omalab preview ".config/hypr/bindings.lua"
+bin/omalab keep --yes
+bin/omalab rewind --yes
+bin/omalab undo --yes
+bin/omalab history
+bin/omalab doctor
 ```
 
 `status` is stable JSON so the bar, tests, and future integrations all observe
@@ -140,14 +140,14 @@ the same state.
 
 ## Protected configuration
 
-OmaRewind checkpoints these targets when they exist:
+OmaLab checkpoints these targets when they exist:
 
 - `~/.config/hypr/`
 - `~/.config/omarchy/`
 - Alacritty, Foot, Kitty, and Ghostty configuration
 - Starship, Fastfetch, btop, Lazygit, and Git configuration
 
-Git metadata is excluded. OmaRewind's own plugin directory is also excluded
+Git metadata is excluded. OmaLab's own plugin directory is also excluded
 from both checkpoint and deletion passes, preventing the restore engine from
 replacing itself while it is running.
 

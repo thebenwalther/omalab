@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
-  <title id="title">OmaRewind — Fearless Mode for Omarchy</title>
-  <desc id="desc">A dark blue product card showing an OmaRewind checkpoint and the Keep Changes and Rewind Configs actions.</desc>
+  <title id="title">OmaLab — Fearless Mode for Omarchy</title>
+  <desc id="desc">A dark blue product card showing an OmaLab checkpoint and the Keep Changes and Rewind Configs actions.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#16161e"/>
@@ -33,7 +33,7 @@
     </g>
 
     <text x="0" y="152" fill="#7aa2f7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="700" letter-spacing="4">OMARCHY PLUGIN</text>
-    <text x="0" y="205" fill="#c0caf5" font-family="ui-sans-serif, system-ui, sans-serif" font-size="52" font-weight="750">OmaRewind</text>
+    <text x="0" y="205" fill="#c0caf5" font-family="ui-sans-serif, system-ui, sans-serif" font-size="52" font-weight="750">OmaLab</text>
     <text x="1" y="245" fill="#bb9af7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" letter-spacing="2">FEARLESS MODE</text>
     <text x="1" y="285" fill="#a9b1d6" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18">Checkpoint. Experiment. Keep—or rewind.</text>
   </g>

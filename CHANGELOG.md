@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0
+
+- Rename the project to **OmaLab** and make Fearless Mode the primary product
+  identity: a safe laboratory for Omarchy experiments.
+- Move to the permanent plugin ID `io.github.thebenwalther.omalab`, the
+  `bin/omalab` command, and the owner-only `~/.local/state/omalab/` state root.
+- Refresh every project image and rebuild the narrated demo and promo loop for
+  the OmaLab launch.
+- Publish the first contest-ready stable release.
+
 ## 0.3.3
 
 - Record the original `~/.config` root and safely realign it before restore so
@@ -14,7 +24,7 @@
 
 ## 0.3.2
 
-- Anchor the panel to its bar icon so OmaRewind opens consistently with other
+- Anchor the panel to its bar icon so OmaLab opens consistently with other
   Omarchy plugins instead of appearing in the center of the screen.
 - Adapt panel highlights, live metrics, action states, change types, history,
   and the active bar badge to the current Omarchy theme's accent colors.

@@ -4,7 +4,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly PROJECT_ROOT
-readonly COMMAND="$PROJECT_ROOT/bin/omarewind"
+readonly COMMAND="$PROJECT_ROOT/bin/omalab"
 TEST_ROOT="$(mktemp -d)"
 readonly TEST_ROOT
 
@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup EXIT
 
 export HOME="$TEST_ROOT/home"
-export OMAREWIND_STATE_HOME="$TEST_ROOT/state"
+export OMALAB_STATE_HOME="$TEST_ROOT/state"
 export FAKE_PACKAGES_FILE="$TEST_ROOT/packages"
 export FAKE_PLUGINS_FILE="$TEST_ROOT/plugins.json"
 export FAKE_THEME_LOG="$TEST_ROOT/theme.log"
@@ -23,13 +23,13 @@ export FAKE_SHA_LOG="$TEST_ROOT/sha256sum.log"
 export PATH="$TEST_ROOT/bin:$PATH"
 
 mkdir -p "$HOME/.config/hypr" \
-  "$HOME/.config/omarchy/plugins/com.omarchy.omarewind" \
+  "$HOME/.config/omarchy/plugins/io.github.thebenwalther.omalab" \
   "$HOME/.config/ghostty" \
   "$TEST_ROOT/bin"
 
 printf 'original binding\n' >"$HOME/.config/hypr/bindings.lua"
 printf 'original terminal\n' >"$HOME/.config/ghostty/config"
-printf 'plugin version one\n' >"$HOME/.config/omarchy/plugins/com.omarchy.omarewind/BarWidget.qml"
+printf 'plugin version one\n' >"$HOME/.config/omarchy/plugins/io.github.thebenwalther.omalab/BarWidget.qml"
 printf 'base-package\n' >"$FAKE_PACKAGES_FILE"
 printf '%s\n' '[{"id":"omarchy.clock","enabled":true}]' >"$FAKE_PLUGINS_FILE"
 for fixture_number in {1..40}; do
@@ -102,7 +102,7 @@ assert_json "$status" '.active == true and .label == "Test experiment" and .tota
 printf 'changed binding\n' >"$HOME/.config/hypr/bindings.lua"
 printf 'new setting\n' >"$HOME/.config/hypr/new.lua"
 rm -- "$HOME/.config/ghostty/config"
-printf 'plugin version two\n' >"$HOME/.config/omarchy/plugins/com.omarchy.omarewind/BarWidget.qml"
+printf 'plugin version two\n' >"$HOME/.config/omarchy/plugins/io.github.thebenwalther.omalab/BarWidget.qml"
 printf 'base-package\nnew-package\n' >"$FAKE_PACKAGES_FILE"
 printf '%s\n' '[{"id":"omarchy.clock","enabled":true},{"id":"community.test","enabled":true}]' >"$FAKE_PLUGINS_FILE"
 
@@ -148,7 +148,7 @@ status="$($COMMAND rewind --yes)"
 assert_json "$status" '.active == false and .historyCount == 1 and .canUndo == true and (.recentHistory | length) == 1 and .recentHistory[0].outcome == "rewound"'
 grep -qx 'original binding' "$HOME/.config/hypr/bindings.lua"
 grep -qx 'original terminal' "$HOME/.config/ghostty/config"
-grep -qx 'plugin version two' "$HOME/.config/omarchy/plugins/com.omarchy.omarewind/BarWidget.qml"
+grep -qx 'plugin version two' "$HOME/.config/omarchy/plugins/io.github.thebenwalther.omalab/BarWidget.qml"
 [[ ! -e "$HOME/.config/hypr/new.lua" ]]
 
 history="$($COMMAND history)"
@@ -218,10 +218,10 @@ grep -qx 'ancestor experiment' "$HOME/.config/hypr/bindings.lua"
 # experiment escape, and must be preserved through rewind.
 rm -rf -- "$HOME/.config"
 mkdir -p "$TEST_ROOT/dotfiles/hypr" \
-  "$TEST_ROOT/dotfiles/omarchy/plugins/com.omarchy.omarewind" \
+  "$TEST_ROOT/dotfiles/omarchy/plugins/io.github.thebenwalther.omalab" \
   "$TEST_ROOT/dotfiles/ghostty"
 printf 'linked original\n' >"$TEST_ROOT/dotfiles/hypr/bindings.lua"
-printf 'plugin version two\n' >"$TEST_ROOT/dotfiles/omarchy/plugins/com.omarchy.omarewind/BarWidget.qml"
+printf 'plugin version two\n' >"$TEST_ROOT/dotfiles/omarchy/plugins/io.github.thebenwalther.omalab/BarWidget.qml"
 ln -s "$TEST_ROOT/dotfiles" "$HOME/.config"
 $COMMAND start 'Baseline symlink test' >/dev/null
 printf 'linked experiment\n' >"$HOME/.config/hypr/bindings.lua"
@@ -268,9 +268,9 @@ assert_json "$status" '.active == false'
 grep -qx 'linked original' "$TEST_ROOT/dotfiles/hypr/bindings.lua"
 
 rm -- "$HOME/.config"
-mkdir -p "$HOME/.config/hypr" "$HOME/.config/omarchy/plugins/com.omarchy.omarewind" "$HOME/.config/ghostty"
+mkdir -p "$HOME/.config/hypr" "$HOME/.config/omarchy/plugins/io.github.thebenwalther.omalab" "$HOME/.config/ghostty"
 printf 'kept binding\n' >"$HOME/.config/hypr/bindings.lua"
-printf 'plugin version two\n' >"$HOME/.config/omarchy/plugins/com.omarchy.omarewind/BarWidget.qml"
+printf 'plugin version two\n' >"$HOME/.config/omarchy/plugins/io.github.thebenwalther.omalab/BarWidget.qml"
 printf 'original terminal\n' >"$HOME/.config/ghostty/config"
 
 # Unreadable configuration trees must fail closed instead of producing a
@@ -285,60 +285,60 @@ if "$COMMAND" start 'Find fail-closed' >/dev/null 2>&1; then
 fi
 chmod -R u+rwx "$HOME/.config/hypr/private"
 rm -rf -- "$HOME/.config/hypr/private"
-[[ ! -d "$OMAREWIND_STATE_HOME/active" ]]
+[[ ! -d "$OMALAB_STATE_HOME/active" ]]
 
 # A damaged checkpoint must fail closed before touching live configuration.
 $COMMAND start 'Integrity test' >/dev/null
 printf 'live work\n' >"$HOME/.config/hypr/bindings.lua"
-mv "$OMAREWIND_STATE_HOME/active/packages.txt" "$TEST_ROOT/packages.good"
-ln -s "$FAKE_PACKAGES_FILE" "$OMAREWIND_STATE_HOME/active/packages.txt"
+mv "$OMALAB_STATE_HOME/active/packages.txt" "$TEST_ROOT/packages.good"
+ln -s "$FAKE_PACKAGES_FILE" "$OMALAB_STATE_HOME/active/packages.txt"
 if "$COMMAND" rewind --yes >/dev/null 2>&1; then
   printf 'rewind unexpectedly accepted symlinked checkpoint metadata\n' >&2
   exit 1
 fi
 grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
-rm -- "$OMAREWIND_STATE_HOME/active/packages.txt"
-mv "$TEST_ROOT/packages.good" "$OMAREWIND_STATE_HOME/active/packages.txt"
-printf 'tampered snapshot\n' >"$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/bindings.lua"
+rm -- "$OMALAB_STATE_HOME/active/packages.txt"
+mv "$TEST_ROOT/packages.good" "$OMALAB_STATE_HOME/active/packages.txt"
+printf 'tampered snapshot\n' >"$OMALAB_STATE_HOME/active/snapshot/.config/hypr/bindings.lua"
 if "$COMMAND" rewind --yes >/dev/null 2>&1; then
   printf 'rewind unexpectedly accepted a damaged checkpoint\n' >&2
   exit 1
 fi
 grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
-printf 'kept binding\n' >"$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/bindings.lua"
-printf 'injected\n' >"$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/not-in-manifest.lua"
+printf 'kept binding\n' >"$OMALAB_STATE_HOME/active/snapshot/.config/hypr/bindings.lua"
+printf 'injected\n' >"$OMALAB_STATE_HOME/active/snapshot/.config/hypr/not-in-manifest.lua"
 if "$COMMAND" rewind --yes >/dev/null 2>&1; then
   printf 'rewind unexpectedly accepted an injected snapshot file\n' >&2
   exit 1
 fi
 grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
-rm -- "$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/not-in-manifest.lua"
-mkfifo "$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/pipe"
+rm -- "$OMALAB_STATE_HOME/active/snapshot/.config/hypr/not-in-manifest.lua"
+mkfifo "$OMALAB_STATE_HOME/active/snapshot/.config/hypr/pipe"
 if "$COMMAND" rewind --yes >/dev/null 2>&1; then
   printf 'rewind unexpectedly accepted an injected snapshot FIFO\n' >&2
   exit 1
 fi
 grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
-rm -- "$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/pipe"
-mkdir "$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/extra-empty"
+rm -- "$OMALAB_STATE_HOME/active/snapshot/.config/hypr/pipe"
+mkdir "$OMALAB_STATE_HOME/active/snapshot/.config/hypr/extra-empty"
 if "$COMMAND" rewind --yes >/dev/null 2>&1; then
   printf 'rewind unexpectedly accepted an extra snapshot directory\n' >&2
   exit 1
 fi
 grep -qx 'live work' "$HOME/.config/hypr/bindings.lua"
-rmdir "$OMAREWIND_STATE_HOME/active/snapshot/.config/hypr/extra-empty"
+rmdir "$OMALAB_STATE_HOME/active/snapshot/.config/hypr/extra-empty"
 $COMMAND keep --yes >/dev/null
 
 # Failed status probes must clean their private work directory.
 $COMMAND start 'Cleanup test' >/dev/null
-cp "$OMAREWIND_STATE_HOME/active/manifest.tsv" "$TEST_ROOT/manifest.good"
-tac "$TEST_ROOT/manifest.good" >"$OMAREWIND_STATE_HOME/active/manifest.tsv"
+cp "$OMALAB_STATE_HOME/active/manifest.tsv" "$TEST_ROOT/manifest.good"
+tac "$TEST_ROOT/manifest.good" >"$OMALAB_STATE_HOME/active/manifest.tsv"
 if "$COMMAND" status >/dev/null 2>&1; then
   printf 'status unexpectedly accepted an unsorted manifest\n' >&2
   exit 1
 fi
-[[ "$(find "$OMAREWIND_STATE_HOME" -maxdepth 1 -type d -name '.status.*' | wc -l)" -eq 0 ]]
-cp "$TEST_ROOT/manifest.good" "$OMAREWIND_STATE_HOME/active/manifest.tsv"
+[[ "$(find "$OMALAB_STATE_HOME" -maxdepth 1 -type d -name '.status.*' | wc -l)" -eq 0 ]]
+cp "$TEST_ROOT/manifest.good" "$OMALAB_STATE_HOME/active/manifest.tsv"
 $COMMAND keep --yes >/dev/null
 
 # Rewind preserves the experiment and supports one deliberate undo.
@@ -368,8 +368,8 @@ set -e
 status="$($COMMAND status)"
 assert_json "$status" '.active == true and (.label == "Concurrent A" or .label == "Concurrent B")'
 $COMMAND keep --yes >/dev/null
-[[ "$(stat -c '%a' "$OMAREWIND_STATE_HOME")" == "700" ]]
-[[ "$(stat -c '%a' "$OMAREWIND_STATE_HOME/.lock")" == "600" ]]
+[[ "$(stat -c '%a' "$OMALAB_STATE_HOME")" == "700" ]]
+[[ "$(stat -c '%a' "$OMALAB_STATE_HOME/.lock")" == "600" ]]
 
 # A rewind interrupted after its experiment capture resumes from the verified
 # safety copy instead of overwriting it or becoming permanently stuck.
@@ -380,7 +380,7 @@ if "$COMMAND" rewind --yes >/dev/null 2>&1; then
   printf 'rewind unexpectedly survived the forced restore failure\n' >&2
   exit 1
 fi
-[[ -d "$OMAREWIND_STATE_HOME/active/experiment" ]]
+[[ -d "$OMALAB_STATE_HOME/active/experiment" ]]
 assert_json "$($COMMAND status)" '.active == true'
 rm -- "$FAIL_RSYNC_FILE"
 status="$($COMMAND rewind --yes)"
@@ -391,7 +391,7 @@ if "$COMMAND" undo --yes >/dev/null 2>&1; then
   printf 'undo unexpectedly survived the forced restore failure\n' >&2
   exit 1
 fi
-latest_history="$(find "$OMAREWIND_STATE_HOME/history" -mindepth 1 -maxdepth 1 -type d -print | sort -r | head -n 1)"
+latest_history="$(find "$OMALAB_STATE_HOME/history" -mindepth 1 -maxdepth 1 -type d -print | sort -r | head -n 1)"
 [[ -d "$latest_history/before-undo" ]]
 rm -- "$FAIL_RSYNC_FILE"
 status="$($COMMAND undo --yes)"
@@ -401,42 +401,42 @@ grep -qx 'interrupted change' "$HOME/.config/hypr/bindings.lua"
 # Metadata cannot turn an archive destination into a path traversal.
 $COMMAND start 'Metadata safety test' >/dev/null
 printf 'metadata live work\n' >"$HOME/.config/hypr/bindings.lua"
-cp "$OMAREWIND_STATE_HOME/active/meta.json" "$TEST_ROOT/meta.good"
-jq '.id = "../../escape"' "$TEST_ROOT/meta.good" >"$OMAREWIND_STATE_HOME/active/meta.json"
+cp "$OMALAB_STATE_HOME/active/meta.json" "$TEST_ROOT/meta.good"
+jq '.id = "../../escape"' "$TEST_ROOT/meta.good" >"$OMALAB_STATE_HOME/active/meta.json"
 if "$COMMAND" keep --yes >/dev/null 2>&1; then
   printf 'keep unexpectedly accepted a hostile checkpoint id\n' >&2
   exit 1
 fi
 [[ ! -e "$TEST_ROOT/escape-kept" ]]
 grep -qx 'metadata live work' "$HOME/.config/hypr/bindings.lua"
-cp "$TEST_ROOT/meta.good" "$OMAREWIND_STATE_HOME/active/meta.json"
+cp "$TEST_ROOT/meta.good" "$OMALAB_STATE_HOME/active/meta.json"
 $COMMAND keep --yes >/dev/null
 
 # State control files themselves may not be symlinks.
 printf 'lock sentinel\n' >"$TEST_ROOT/lock-sentinel"
-mv "$OMAREWIND_STATE_HOME/.lock" "$TEST_ROOT/real-lock"
-ln -s "$TEST_ROOT/lock-sentinel" "$OMAREWIND_STATE_HOME/.lock"
+mv "$OMALAB_STATE_HOME/.lock" "$TEST_ROOT/real-lock"
+ln -s "$TEST_ROOT/lock-sentinel" "$OMALAB_STATE_HOME/.lock"
 if "$COMMAND" status >/dev/null 2>&1; then
   printf 'status unexpectedly followed a symlinked lock file\n' >&2
   exit 1
 fi
 grep -qx 'lock sentinel' "$TEST_ROOT/lock-sentinel"
-rm -- "$OMAREWIND_STATE_HOME/.lock"
-mv "$TEST_ROOT/real-lock" "$OMAREWIND_STATE_HOME/.lock"
+rm -- "$OMALAB_STATE_HOME/.lock"
+mv "$TEST_ROOT/real-lock" "$OMALAB_STATE_HOME/.lock"
 
 mkdir -p "$TEST_ROOT/fake-active"
-ln -s "$TEST_ROOT/fake-active" "$OMAREWIND_STATE_HOME/active"
+ln -s "$TEST_ROOT/fake-active" "$OMALAB_STATE_HOME/active"
 if "$COMMAND" status >/dev/null 2>&1; then
   printf 'status unexpectedly followed a symlinked active checkpoint\n' >&2
   exit 1
 fi
-rm -- "$OMAREWIND_STATE_HOME/active"
+rm -- "$OMALAB_STATE_HOME/active"
 
 if "$COMMAND" start $'unsafe\nlabel' >/dev/null 2>&1; then
   printf 'start unexpectedly accepted a multiline label\n' >&2
   exit 1
 fi
-[[ ! -d "$OMAREWIND_STATE_HOME/active" ]]
+[[ ! -d "$OMALAB_STATE_HOME/active" ]]
 
 # Spaces and backslashes are valid configuration filenames. Batched hashing
 # must preserve them byte-for-byte instead of parsing checksum output as text.
@@ -462,13 +462,13 @@ if "$COMMAND" start 'Odd filename test' >/dev/null 2>&1; then
   printf 'start unexpectedly accepted a tab in a filename\n' >&2
   exit 1
 fi
-[[ ! -d "$OMAREWIND_STATE_HOME/active" ]]
-[[ "$(find "$OMAREWIND_STATE_HOME" -maxdepth 1 -type d -name '.starting.*' | wc -l)" -eq 0 ]]
+[[ ! -d "$OMALAB_STATE_HOME/active" ]]
+[[ "$(find "$OMALAB_STATE_HOME" -maxdepth 1 -type d -name '.starting.*' | wc -l)" -eq 0 ]]
 rm -- "$HOME/.config/hypr/has"$'\t'"tab"
 
 # Corrupt history is skipped from stable JSON and reported by doctor instead
 # of poisoning the last-session model.
-corrupt_history="$(find "$OMAREWIND_STATE_HOME/history" -mindepth 1 -maxdepth 1 -type d -print | sort -r | head -n 1)"
+corrupt_history="$(find "$OMALAB_STATE_HOME/history" -mindepth 1 -maxdepth 1 -type d -print | sort -r | head -n 1)"
 cp "$corrupt_history/meta.json" "$TEST_ROOT/history-meta.good"
 printf '{broken\n' >"$corrupt_history/meta.json"
 assert_json "$($COMMAND history)" 'type == "array"'
@@ -477,6 +477,6 @@ assert_json "$doctor" '.ok == false and .history.corruptEntries == 1'
 cp "$TEST_ROOT/history-meta.good" "$corrupt_history/meta.json"
 
 doctor="$($COMMAND doctor)"
-assert_json "$doctor" '.ok == true and .pluginId == "com.omarchy.omarewind" and .version == "0.3.3"'
+assert_json "$doctor" '.ok == true and .pluginId == "io.github.thebenwalther.omalab" and .version == "1.0.0"'
 
 printf 'backend-test: ok\n'
