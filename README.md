@@ -13,11 +13,12 @@ wild theme, replace your keybindings, or try an unfamiliar plugin and think:
 
 ## Watch it work
 
-[![Watch the one-minute OmaLab demo](docs/demo/thumbnail.png)](https://github.com/thebenwalther/omalab/releases/download/v1.0.0/omalab-prize-demo.mp4)
+### Narrated one-minute demo
+
+https://github.com/user-attachments/assets/aa20b615-706a-4402-ace1-e58f4e6e79c3
 
 See the real checkpoint, theme experiment, configuration diff, rewind, and
-reversible undo in the [narrated one-minute demo](https://github.com/thebenwalther/omalab/releases/download/v1.0.0/omalab-prize-demo.mp4),
-or watch the [soundtracked 14-second promo loop](https://github.com/thebenwalther/omalab/releases/download/v1.0.0/omalab-demo-loop.mp4).
+reversible undo.
 
 ## What it does
 
