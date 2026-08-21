@@ -41,7 +41,7 @@ system package set is not.
 
 ## The experience
 
-When idle, OmaLab is a small history icon in the bar. Give the experiment an
+When idle, OmaLab is a small flask icon in the bar. Give the experiment an
 optional name, start Fearless Mode, and it becomes a live badge:
 
 ```text
@@ -77,6 +77,19 @@ confirmation and preserves the post-rewind state before it acts.
 
 The idle panel keeps the three newest experiments visible as a compact timeline
 of what was kept, rewound, or restored. The CLI retains the complete history.
+
+## Requirements
+
+OmaLab targets Omarchy 4 and its Quickshell plugin system. Runtime dependencies
+are Bash, `jq`, `rsync`, and standard GNU/Linux utilities supplied by a normal
+Omarchy installation (`coreutils`, `findutils`, `diffutils`, `util-linux`,
+`gawk`, `grep`, and `glibc` for `iconv`). OmaLab downloads no dependencies and
+installs no background service. Run `bin/omalab doctor` to verify the required
+commands and local state permissions.
+
+Theme restoration, shell refresh, desktop notifications, and optional root
+snapshots use Omarchy's existing commands when available; OmaLab does not
+replace or install those integrations.
 
 ## Install
 
